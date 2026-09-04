@@ -161,9 +161,15 @@ body{
   width:4px; height:4px; border-radius:50%; background:var(--hint)}
 /* Обрезка растворением, а не резким краем: так видно, что текст продолжается,
    и не нужен отдельный признак «тут ещё есть». */
-.body.short{overflow:hidden;
-  -webkit-mask-image:linear-gradient(#000 76%, transparent);
-  mask-image:linear-gradient(#000 76%, transparent)}
+.body .lead{font-size:15.5px; line-height:1.4; font-weight:600; margin:0 0 10px}
+.body .full{font-size:14.5px}
+/* Выжимка почти всегда влезает целиком. Растворение включаем ТОЛЬКО когда
+   текст реально не поместился: постоянная маска гасила бы последний пункт
+   даже на короткой карточке. Класс ставит скрипт после отрисовки. */
+.card:not(.reading) .body{overflow:hidden}
+.card:not(.reading) .body.clipped{
+  -webkit-mask-image:linear-gradient(#000 78%, transparent);
+  mask-image:linear-gradient(#000 78%, transparent)}
 /* В чтении текст занимает СВОЮ высоту, а прокручивается карточка целиком.
    Пока текст оставался растянутым по flex, он вылезал за свою ячейку и
    накрывал кнопку «свернуть»: нажать её было невозможно. */
@@ -408,6 +414,29 @@ function renderBody(text) {
   return out.join("");
 }
 
+/* Карточка показывает ВЫЖИМКУ, а не объявление целиком: решение принимается
+   за секунды, а объявление пишут на две тысячи знаков с рассказом о компании
+   и списком плюшек. Полный пост открывается кнопкой.
+
+   Выжимку готовит tg_brief на машине: локальная модель, а когда она выключена
+   — правила по разделам. Если выжимки нет вовсе, показываем размеченный
+   полный текст: хуже для чтения, но лучше пустой карточки. */
+function briefList(head, arr) {
+  if (!arr || !arr.length) return "";
+  return "<h3>" + head + "</h3><ul>"
+    + arr.map(x => "<li>" + esc(x) + "</li>").join("") + "</ul>";
+}
+
+function renderBrief(v) {
+  const b = v.brief;
+  if (!b || (!b.delat?.length && !b.trebuyut?.length && !b.sut))
+    return '<div class="full">' + renderBody(v.text) + "</div>";
+  return (b.sut ? '<p class="lead">' + esc(b.sut) + "</p>" : "")
+    + briefList("что делать", b.delat)
+    + briefList("что требуют", b.trebuyut)
+    + briefList("важно", b.vazhno);
+}
+
 function buildCard(v) {
   const chips = [];
   if (v.level && v.level !== "unspecified") chips.push([v.level, ""]);
@@ -423,6 +452,7 @@ function buildCard(v) {
 
   const el = document.createElement("div");
   el.className = "card";
+  el.__full = v.text || "";          // нужен markClipped, чтобы решить про кнопку
   el.innerHTML =
       '<span class="stamp y">беру</span><span class="stamp n">нет</span>'
     + '<div class="top"><div class="dial" style="--p:' + Math.max(0, Math.min(100, v.priority)) + '">'
@@ -436,7 +466,7 @@ function buildCard(v) {
         ? '<div class="gap"><h4>чего у тебя нет</h4><ul>'
           + v.missing.map(m => "<li>" + esc(m) + "</li>").join("") + "</ul></div>"
         : "")
-    + '<div class="body short">' + renderBody(v.text) + "</div>"
+    + '<div class="body">' + renderBrief(v) + "</div>"
     + '<button class="more">читать целиком</button>'
     + '<div class="links">' + links.join("") + "</div>"
     + (v.why ? '<div class="why">' + esc(v.why) + "</div>" : "");
@@ -467,18 +497,41 @@ function mount() {
 
 function attachFront(el) {
   el.dataset.depth = 0;
+  const v = queue[0];
+  markClipped(el);
   el.querySelector(".more").onclick = ev => {
     ev.stopPropagation();
-    const b = el.querySelector(".body");
-    const folded = b.classList.toggle("short");
-    // Раскрытый текст = режим чтения: включаем прокрутку и гасим свайп,
-    // чтобы жесты не спорили за один и тот же палец.
-    el.classList.toggle("reading", !folded);
-    ev.target.textContent = folded ? "читать целиком" : "свернуть";
-    if (!folded) { el.scrollTop = 0; haptic("selectionChanged"); }
-    backButton(!folded, () => el.querySelector(".more").click());
+    const body = el.querySelector(".body");
+    const opening = !el.classList.contains("reading");
+    // Раскрытие подменяет выжимку полным постом, а не просто снимает обрезку:
+    // выжимка и объявление это разные тексты, показывать оба подряд незачем.
+    body.innerHTML = opening ? renderBody(v.text) : renderBrief(v);
+    body.classList.remove("clipped");
+    el.classList.toggle("reading", opening);
+    ev.target.textContent = opening ? "свернуть" : "читать целиком";
+    el.scrollTop = 0;
+    haptic("selectionChanged");
+    if (!opening) markClipped(el);
+    backButton(opening, () => el.querySelector(".more").click());
   };
   drag(el);
+}
+
+/* Растворение снизу и кнопка «читать целиком» нужны, только если текст не
+   поместился. Проверяем по факту, а не на глаз: у коротких выжимок ни того,
+   ни другого быть не должно. */
+function markClipped(el) {
+  const body = el.querySelector(".body");
+  const more = el.querySelector(".more");
+  if (!body || !more) return;
+  requestAnimationFrame(() => {
+    const cut = body.scrollHeight - body.clientHeight > 6;
+    body.classList.toggle("clipped", cut);
+    // Кнопку прячем, только когда выжимка целиком видна И полный пост не
+    // длиннее её: иначе Khan теряет доступ к оригиналу объявления.
+    const hasMore = cut || (el.__full || "").length > body.textContent.length + 120;
+    more.hidden = !hasMore;
+  });
 }
 
 /* Родная кнопка «назад» вместо своей: в режиме чтения ею сворачиваем текст,
