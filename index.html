@@ -152,6 +152,9 @@ body{
 .body{flex:1 1 auto; min-height:0; position:relative}
 .body h3{margin:14px 0 6px; font:700 11px/1 var(--font); color:var(--hint);
   text-transform:uppercase; letter-spacing:.08em}
+/* Заголовок не остаётся один внизу карточки: если под ним не поместилось
+   ни строки, он выглядит обрывком. */
+.body h3:last-child{display:none}
 .body h3:first-child{margin-top:2px}
 .body p{margin:0 0 8px; font-size:15px; line-height:1.5; color:var(--ink)}
 .body ul{margin:0 0 8px; padding:0; list-style:none}
@@ -190,6 +193,9 @@ body{
   border:2.5px solid currentColor; border-radius:9px; opacity:0; pointer-events:none}
 .stamp.y{left:15px; color:var(--take); transform:rotate(-12deg)}
 .stamp.n{right:15px; color:var(--nope); transform:rotate(12deg)}
+/* Отложить — жест вниз, поэтому штамп внизу по центру, а не в углу. */
+.stamp.l{top:auto; bottom:18px; left:50%; margin-left:-58px; width:116px;
+  text-align:center; color:var(--later); transform:rotate(-3deg)}
 
 /* ── кнопки ───────────────────────────────────────────────── */
 .acts{display:flex; justify-content:space-between; align-items:flex-start;
@@ -294,7 +300,8 @@ const FORMAT = {
   office_ru: "офис в РФ", cis: "СНГ", abroad: "зарубеж", unspecified: ""
 };
 const KEY = "verdicts";
-const THROW = 92;     // порог решения в пикселях
+const THROW = 92;     // порог решения по горизонтали, пиксели
+const THROW_Y = 110;  // по вертикали больше: случайных движений вверх-вниз больше
 const FLICK = 0.65;   // порог броска в пикселях за миллисекунду
 
 const items = (window.WAVE && WAVE.items) || [];
@@ -431,10 +438,13 @@ function renderBrief(v) {
   const b = v.brief;
   if (!b || (!b.delat?.length && !b.trebuyut?.length && !b.sut))
     return '<div class="full">' + renderBody(v.text) + "</div>";
+  // «Важно» идёт сразу за сутью, а не в конце: там вилка, формат и
+  // ограничения, то есть то, на чём решение чаще всего и принимается.
+  // В хвосте этот блок срезала обрезка, и от него оставался один заголовок.
   return (b.sut ? '<p class="lead">' + esc(b.sut) + "</p>" : "")
+    + briefList("важно", b.vazhno)
     + briefList("что делать", b.delat)
-    + briefList("что требуют", b.trebuyut)
-    + briefList("важно", b.vazhno);
+    + briefList("что требуют", b.trebuyut);
 }
 
 function buildCard(v) {
@@ -455,6 +465,7 @@ function buildCard(v) {
   el.__full = v.text || "";          // нужен markClipped, чтобы решить про кнопку
   el.innerHTML =
       '<span class="stamp y">беру</span><span class="stamp n">нет</span>'
+    + '<span class="stamp l">отложить</span>'
     + '<div class="top"><div class="dial" style="--p:' + Math.max(0, Math.min(100, v.priority)) + '">'
     + "<b>" + esc(Math.round(v.priority)) + "</b></div><div>"
     + '<h2 class="ttl">' + esc(v.role) + "</h2>"
@@ -556,18 +567,22 @@ function paintRail() {
 
 /* ── жест ─────────────────────────────────────────────────── */
 function drag(el) {
-  const y = el.querySelector(".stamp.y"), n = el.querySelector(".stamp.n");
-  let id = null, x0 = 0, yy0 = 0, t0 = 0, dx = 0, axis = null, crossed = false;
+  const y = el.querySelector(".stamp.y"), n = el.querySelector(".stamp.n"),
+        l = el.querySelector(".stamp.l");
+  let id = null, x0 = 0, yy0 = 0, t0 = 0, dx = 0, dy = 0, axis = null, crossed = false;
 
   el.addEventListener("pointerdown", e => {
     if (e.target.closest("a, button")) return;
-    if (el.classList.contains("reading")) return;   // в чтении свайпа нет
     id = e.pointerId; x0 = e.clientX; yy0 = e.clientY; t0 = e.timeStamp;
-    dx = 0; axis = null; crossed = false;
+    dx = 0; dy = 0; axis = null; crossed = false;
     el.classList.remove("settle");
-    // Захват сразу, а не после выбора оси: пока мы «думаем», браузер успевает
-    // забрать жест себе. Именно на этом ломался медленный свайп.
-    try { el.setPointerCapture(e.pointerId); } catch (err) {}
+    // Захват сразу — но только в режиме свайпа. Пока мы «думаем», браузер
+    // успевает забрать жест себе, и на этом ломался медленный свайп.
+    // В режиме чтения захватывать нельзя: это убьёт прокрутку, поэтому там
+    // захват откладывается до момента, когда ось окажется горизонтальной.
+    if (!el.classList.contains("reading")) {
+      try { el.setPointerCapture(e.pointerId); } catch (err) {}
+    }
   });
 
   el.addEventListener("pointermove", e => {
@@ -576,34 +591,60 @@ function drag(el) {
     // Ось выбирается один раз, с перевесом в сторону горизонтали: палец при
     // медленном движении всегда немного гуляет вверх-вниз, и строгое
     // сравнение убивало половину честных свайпов.
+    const reading = el.classList.contains("reading");
     if (!axis) {
       if (Math.abs(mx) < 5 && Math.abs(my) < 5) return;
       axis = Math.abs(mx) >= Math.abs(my) * 0.6 ? "x" : "y";
+      // В чтении вертикаль отдана прокрутке, а горизонталь наша: захват
+      // берём только сейчас, когда стало ясно, что жест точно вбок.
+      if (reading) {
+        if (axis !== "x") { id = null; return; }
+        try { el.setPointerCapture(e.pointerId); } catch (err) {}
+      }
     }
-    if (axis !== "x") return;
+    // Вертикальное «отложить» только в режиме свайпа: в чтении тем же
+    // движением человек листает текст.
+    if (reading && axis !== "x") return;
     if (e.cancelable) e.preventDefault();
-    dx = mx;
-    const k = Math.min(1, Math.abs(dx) / THROW);
-    el.style.transform = "translateX(" + dx + "px) rotate(" + (dx / 22) + "deg)";
-    y.style.opacity = dx > 0 ? k : 0;
-    n.style.opacity = dx < 0 ? k : 0;
-    if (k >= 1 && !crossed) { crossed = true; haptic("selectionChanged"); }
-    if (k < 1) crossed = false;
+    if (axis === "x") {
+      dx = mx; dy = 0;
+      const k = Math.min(1, Math.abs(dx) / THROW);
+      el.style.transform = "translateX(" + dx + "px) rotate(" + (dx / 22) + "deg)";
+      y.style.opacity = dx > 0 ? k : 0;
+      n.style.opacity = dx < 0 ? k : 0;
+      l.style.opacity = 0;
+      if (k >= 1 && !crossed) { crossed = true; haptic("selectionChanged"); }
+      if (k < 1) crossed = false;
+    } else {
+      // Вертикаль это «отложить». Направление не важно: вверх и вниз делают
+      // одно и то же, потому что палец сам выбирает, куда удобнее, а два
+      // разных решения на одной оси легко перепутать.
+      dy = my; dx = 0;
+      const k = Math.min(1, Math.abs(dy) / THROW_Y);
+      el.style.transform = "translateY(" + dy + "px) scale(" + (1 - k * .04) + ")";
+      y.style.opacity = n.style.opacity = 0;
+      l.style.opacity = k;
+      if (k >= 1 && !crossed) { crossed = true; haptic("selectionChanged"); }
+      if (k < 1) crossed = false;
+    }
   });
 
   const release = e => {
     if (id === null || (e && e.pointerId !== id)) return;
     const dt = Math.max(1, (e ? e.timeStamp : t0 + 300) - t0);
-    const v = dx / dt;                       // пиксели в миллисекунду
     id = null;
     // Решение принимается либо по расстоянию, либо по скорости броска:
     // короткий резкий флик ощущается как решение, хотя палец прошёл мало.
-    if (axis === "x" && (Math.abs(dx) > THROW || Math.abs(v) > FLICK)) {
-      return decide(dx > 0 ? "взял" : "нет", Math.sign(dx), Math.abs(v));
+    if (axis === "x" && (Math.abs(dx) > THROW || Math.abs(dx / dt) > FLICK)) {
+      return decide(dx > 0 ? "взял" : "нет", Math.sign(dx), 0);
+    }
+    if (axis === "y" && !el.classList.contains("reading")
+        && (Math.abs(dy) > THROW_Y || Math.abs(dy / dt) > FLICK)) {
+      return decide("отложен", 0, Math.sign(dy));
     }
     el.classList.add("settle");
     el.style.transform = "";
-    y.style.opacity = n.style.opacity = 0;
+    y.style.opacity = n.style.opacity = l.style.opacity = 0;
   };
   el.addEventListener("pointerup", release);
   // pointercancel обрабатываем ТАК ЖЕ, а не отдельной веткой «отменить всё»:
@@ -614,7 +655,7 @@ function drag(el) {
 }
 
 /* ── решение ──────────────────────────────────────────────── */
-function decide(state, dir, speed) {
+function decide(state, dirX, dirY) {
   if (!queue.length) return;
   const v = queue.shift();
   done[v.id] = state;
@@ -624,11 +665,14 @@ function decide(state, dir, speed) {
 
   const el = nodes.shift();
   if (el) {
-    const d = dir || (state === "отложен" ? 0 : 0);
+    // Улетает туда, куда человек её толкнул. Кнопкой направления нет, тогда
+    // берём привычное: «беру» вправо, «нет» влево, «отложить» вниз.
+    const dx2 = dirX || (state === "взял" ? 1 : state === "нет" ? -1 : 0);
+    const dy2 = dirY || (dx2 ? 0 : 1);
     el.classList.add("fly");
-    el.style.transform = d
-      ? "translateX(" + d * (innerWidth + 220) + "px) rotate(" + d * 22 + "deg)"
-      : "translateY(-" + (innerHeight * .8) + "px) scale(.85)";
+    el.style.transform = dx2
+      ? "translateX(" + dx2 * (innerWidth + 220) + "px) rotate(" + dx2 * 22 + "deg)"
+      : "translateY(" + dy2 * (innerHeight * .85) + "px) scale(.85)";
     setTimeout(() => el.remove(), 340);
   }
   // Следующая уже в DOM: повышаем её и дорисовываем новую в хвост стопки.
@@ -701,8 +745,7 @@ function send() {
 
 /* ── старт ────────────────────────────────────────────────── */
 initTelegram();
-document.querySelectorAll("[data-v]").forEach(b =>
-  b.onclick = () => decide(b.dataset.v, b.dataset.v === "взял" ? 1 : b.dataset.v === "нет" ? -1 : 0, 0));
+document.querySelectorAll("[data-v]").forEach(b => b.onclick = () => decide(b.dataset.v, 0, 0));
 $("#undo").onclick = undo;
 if (TG && TG.MainButton) TG.MainButton.onClick(send);
 
