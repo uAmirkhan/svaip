@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Свайп вакансий</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=PT+Sans+Narrow:wght@400;700&family=PT+Sans:wght@400;700&family=PT+Mono&display=swap">
+<style>
+:root{
+  --ground:#F2F3F0; --surface:#FFFFFF; --surface2:#EAECE7;
+  --ink:#191D22; --ink-soft:#3C444E; --muted:#6E7681; --line:#DCDFD8;
+  --take:#2E6B4F; --take-bg:#E4EFE8;
+  --nope:#A33B32; --nope-bg:#F6E5E3;
+  --later:#8A5F16; --later-bg:#F5EBD8;
+  --wrong:#54468A; --wrong-bg:#E9E6F4;
+  --shadow:0 1px 2px rgba(25,29,34,.06), 0 12px 28px -12px rgba(25,29,34,.22);
+}
+:root.dark{
+  --ground:#101317; --surface:#181C22; --surface2:#20252C;
+  --ink:#E6E9ED; --ink-soft:#C2C8D0; --muted:#8A929C; --line:#272C34;
+  --take:#63C295; --take-bg:#163024;
+  --nope:#E0776B; --nope-bg:#33201D;
+  --later:#D9A441; --later-bg:#332715;
+  --wrong:#A695DE; --wrong-bg:#251F3A;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 14px 30px -14px rgba(0,0,0,.7);
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{
+  background:var(--ground); color:var(--ink);
+  font:400 15px/1.5 "PT Sans","Segoe UI",system-ui,sans-serif;
+  min-height:100dvh; display:flex; justify-content:center;
+  -webkit-tap-highlight-color:transparent; overscroll-behavior:none;
+}
+.app{width:100%; max-width:460px; display:flex; flex-direction:column;
+     min-height:100dvh; padding:10px 12px calc(12px + env(safe-area-inset-bottom))}
+.head{display:flex; align-items:baseline; gap:10px; padding:2px 2px 10px}
+.head h1{font:700 17px/1 "PT Sans Narrow",sans-serif; letter-spacing:.02em;
+         margin:0; text-transform:uppercase}
+.count{font:400 12px/1 "PT Mono",ui-monospace,monospace; color:var(--muted);
+       margin-left:auto; font-variant-numeric:tabular-nums}
+.bar{height:3px; background:var(--line); border-radius:2px; overflow:hidden; margin-bottom:12px}
+.bar i{display:block; height:100%; background:var(--ink-soft); width:0;
+       transition:width .35s cubic-bezier(.2,.7,.3,1)}
+.deck{position:relative; flex:1; min-height:400px}
+.card{
+  position:absolute; inset:0; background:var(--surface);
+  border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow);
+  padding:16px 16px 14px; overflow-y:auto; overscroll-behavior:contain;
+  display:flex; flex-direction:column; gap:11px; touch-action:pan-y;
+}
+.card.behind{transform:scale(.965) translateY(9px); opacity:.55; pointer-events:none; z-index:0}
+.card.front{z-index:2}
+.card.gone{transition:transform .3s ease-in, opacity .3s ease-in; opacity:0}
+.top{display:flex; align-items:flex-start; gap:11px}
+.score{font:400 21px/1 "PT Mono",ui-monospace,monospace; font-variant-numeric:tabular-nums;
+  color:var(--ink); background:var(--surface2); border-radius:9px;
+  padding:8px 9px; min-width:52px; text-align:center; flex:none}
+.score small{display:block; font:400 8.5px/1.4 "PT Sans",sans-serif;
+  color:var(--muted); text-transform:uppercase; letter-spacing:.09em; margin-top:3px}
+.ttl{font:700 20px/1.18 "PT Sans Narrow",sans-serif; margin:0; text-wrap:balance}
+.sub{font-size:12.5px; color:var(--muted); margin-top:4px}
+.sub b{color:var(--ink-soft); font-weight:700}
+.facts{display:flex; flex-wrap:wrap; gap:5px}
+.chip{font:400 11.5px/1 "PT Sans",sans-serif; padding:5px 8px; border-radius:6px;
+  background:var(--surface2); color:var(--ink-soft); white-space:nowrap}
+.chip.hot{background:var(--take-bg); color:var(--take); font-weight:700}
+.chip.pin{background:var(--later-bg); color:var(--later)}
+.gap{background:var(--nope-bg); border-radius:9px; padding:9px 11px}
+.gap h4{margin:0 0 4px; font:700 10px/1 "PT Sans",sans-serif; color:var(--nope);
+  text-transform:uppercase; letter-spacing:.09em}
+.gap ul{margin:0; padding-left:15px; font-size:13px; color:var(--ink-soft)}
+.body{font-size:13.5px; line-height:1.55; color:var(--ink-soft); flex:1;
+  white-space:pre-wrap; word-break:break-word}
+.body.short{display:-webkit-box; -webkit-line-clamp:7; -webkit-box-orient:vertical; overflow:hidden}
+.more{align-self:flex-start; background:none; border:0; padding:2px 0; cursor:pointer;
+  font:400 12.5px/1 "PT Sans",sans-serif; color:var(--muted); text-decoration:underline}
+.links{display:flex; gap:14px; flex-wrap:wrap; font-size:13px; padding-top:2px}
+.links a{color:var(--ink); text-underline-offset:3px}
+.why{font:400 11px/1.45 "PT Mono",ui-monospace,monospace; color:var(--muted);
+  border-top:1px dashed var(--line); padding-top:8px; word-break:break-word}
+.stamp{position:absolute; top:20px; font:700 15px/1 "PT Sans Narrow",sans-serif;
+  text-transform:uppercase; letter-spacing:.12em; padding:7px 12px;
+  border:2px solid currentColor; border-radius:7px; opacity:0; pointer-events:none}
+.stamp.y{left:16px; color:var(--take); transform:rotate(-11deg)}
+.stamp.n{right:16px; color:var(--nope); transform:rotate(11deg)}
+.acts{display:grid; grid-template-columns:repeat(4,1fr); gap:7px; padding-top:12px}
+.act{font:700 12.5px/1.25 "PT Sans",sans-serif; padding:13px 4px; border-radius:11px;
+  border:1px solid var(--line); background:var(--surface); color:var(--ink-soft);
+  cursor:pointer; transition:transform .1s}
+.act:active{transform:scale(.95)}
+.act .k{display:block; font:400 9.5px/1 "PT Sans",sans-serif; color:var(--muted);
+  margin-top:4px; letter-spacing:.05em}
+.act.take{background:var(--take-bg); color:var(--take); border-color:transparent}
+.act.nope{background:var(--nope-bg); color:var(--nope); border-color:transparent}
+.act.later{background:var(--later-bg); color:var(--later); border-color:transparent}
+.act.wrong{background:var(--wrong-bg); color:var(--wrong); border-color:transparent}
+.foot{display:flex; align-items:center; gap:12px; padding-top:9px; min-height:26px}
+.undo{background:none; border:0; padding:0; cursor:pointer; color:var(--muted);
+  font:400 12.5px/1 "PT Sans",sans-serif; text-decoration:underline}
+.undo[disabled]{opacity:.35; cursor:default; text-decoration:none}
+.tally{margin-left:auto; font:400 11.5px/1 "PT Mono",ui-monospace,monospace;
+  color:var(--muted); font-variant-numeric:tabular-nums}
+.empty{background:var(--surface); border:1px solid var(--line); border-radius:14px;
+  padding:26px 20px; text-align:center; box-shadow:var(--shadow)}
+.empty h2{font:700 21px/1.2 "PT Sans Narrow",sans-serif; margin:0 0 8px}
+.empty p{color:var(--muted); font-size:14px; margin:0 0 6px}
+.send{margin-top:16px; width:100%; padding:15px; border:0; border-radius:12px;
+  background:var(--take); color:#fff; font:700 15px/1 "PT Sans",sans-serif; cursor:pointer}
+.send[disabled]{opacity:.5}
+.done{display:flex; flex-direction:column; gap:7px; margin-top:16px; text-align:left}
+.done .row{display:flex; gap:9px; align-items:baseline; font-size:13.5px;
+  border-top:1px solid var(--line); padding-top:7px}
+.done .row i{font-style:normal; font:400 10px/1.6 "PT Sans",sans-serif;
+  text-transform:uppercase; letter-spacing:.07em; flex:none; width:78px; color:var(--muted)}
+.stale{background:var(--later-bg); color:var(--later); border-radius:9px;
+  padding:9px 11px; font-size:12.5px; margin-bottom:10px}
+@media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="head">
+    <h1>Свайп вакансий</h1>
+    <span class="count" id="count"></span>
+  </div>
+  <div class="bar"><i id="bar"></i></div>
+  <div id="stale"></div>
+  <div class="deck" id="deck"></div>
+  <div class="acts" id="acts" hidden>
+    <button class="act nope"  data-v="нет">Точно нет<span class="k">никогда</span></button>
+    <button class="act wrong" data-v="мимо">Не та роль<span class="k">чинит фильтр</span></button>
+    <button class="act later" data-v="отложен">Отложить<span class="k">через неделю</span></button>
+    <button class="act take"  data-v="взял">Беру<span class="k">на доску</span></button>
+  </div>
+  <div class="foot">
+    <button class="undo" id="undo" disabled>вернуть последнюю</button>
+    <span class="tally" id="tally"></span>
+  </div>
+</div>
+
+<script src="wave.js"></script>
+<script>
+/* Мини-приложение Telegram. Ни сервера, ни логина.
+
+   Волна вшита в wave.js при выкладке. Решения копятся в CloudStorage самого
+   телеграма, поэтому переживают закрытие приложения и потерю связи. В конце
+   одна кнопка отдаёт их боту через sendData, и машина раскладывает их по
+   файлам. Если компьютер выключен, телеграм держит посылку сутки и отдаст,
+   когда бот проснётся: решение не теряется, просто записывается позже. */
+const TG = window.Telegram && window.Telegram.WebApp;
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+const LABEL = { взял: "Беру", нет: "Точно нет", отложен: "Отложил", мимо: "Не та роль" };
+const DOMAIN = {
+  gamedev: "геймдев", ai: "AI", fintech: "финтех", b2b_saas: "B2B SaaS",
+  crypto: "крипта", outsource: "аутсорс", retail_logistics: "ритейл и логистика",
+  neutral: "", gov: "госсектор"
+};
+const FORMAT = {
+  remote: "удалёнка", hybrid_msk: "гибрид Москва", office_msk: "офис Москва",
+  office_ru: "офис в РФ", cis: "СНГ", abroad: "зарубеж", unspecified: ""
+};
+const KEY = "verdicts";
+
+let items = (window.WAVE && WAVE.items) || [];
+let done = {}, queue = [], history = [], sent = false;
+
+/* ── тема из телеграма ───────────────────────────────────── */
+if (TG) {
+  TG.ready(); TG.expand();
+  const paint = () => {
+    document.documentElement.classList.toggle("dark", TG.colorScheme === "dark");
+    try { TG.setHeaderColor(TG.colorScheme === "dark" ? "#101317" : "#F2F3F0"); } catch (e) {}
+  };
+  paint();
+  TG.onEvent("themeChanged", paint);
+} else if (matchMedia("(prefers-color-scheme: dark)").matches) {
+  document.documentElement.classList.add("dark");
+}
+
+/* ── хранилище решений ───────────────────────────────────── */
+function loadDone() {
+  return new Promise(res => {
+    if (!TG || !TG.CloudStorage) {
+      try { res(JSON.parse(localStorage.getItem(KEY) || "{}")); }
+      catch (e) { res({}); }
+      return;
+    }
+    TG.CloudStorage.getItem(KEY, (err, val) => {
+      if (err || !val) return res({});
+      try { res(JSON.parse(val)); } catch (e) { res({}); }
+    });
+  });
+}
+function saveDone() {
+  const raw = JSON.stringify(done);
+  if (TG && TG.CloudStorage) TG.CloudStorage.setItem(KEY, raw, () => {});
+  else { try { localStorage.setItem(KEY, raw); } catch (e) {} }
+}
+
+/* ── карточка ────────────────────────────────────────────── */
+function cardHtml(v, front) {
+  const chips = [];
+  if (v.level && v.level !== "unspecified") chips.push([v.level, ""]);
+  const dom = DOMAIN[v.domain]; if (dom) chips.push([dom, "hot"]);
+  const fmt = FORMAT[v.format]; if (fmt) chips.push([fmt, ""]);
+  if (v.salary) chips.push([v.salary, "pin"]);
+  if (v.stream === "личка") chips.push(["писать самому", ""]);
+
+  const gaps = (v.missing || []).length
+    ? '<div class="gap"><h4>чего у тебя нет</h4><ul>'
+      + v.missing.map(m => "<li>" + esc(m) + "</li>").join("") + "</ul></div>"
+    : "";
+  const links = [];
+  if (v.apply) links.push('<a href="' + esc(v.apply) + '" target="_blank" rel="noopener">откликнуться</a>');
+  if (v.contact) links.push("<span>написать " + esc(v.contact) + "</span>");
+  if (v.url) links.push('<a href="' + esc(v.url) + '" target="_blank" rel="noopener">пост</a>');
+
+  return '<div class="card ' + (front ? "front" : "behind") + '">'
+    + '<span class="stamp y">беру</span><span class="stamp n">нет</span>'
+    + '<div class="top"><div class="score">' + esc(v.priority)
+    + '<small>балл</small></div><div><h2 class="ttl">' + esc(v.role) + "</h2>"
+    + '<div class="sub">' + (v.company ? "<b>" + esc(v.company) + "</b> · " : "")
+    + "@" + esc(v.channel) + " · " + esc(v.posted) + "</div></div></div>"
+    + '<div class="facts">' + chips.map(([t, c]) =>
+        '<span class="chip ' + c + '">' + esc(t) + "</span>").join("") + "</div>"
+    + gaps
+    + '<div class="body short">' + esc(v.text) + "</div>"
+    + '<button class="more">читать целиком</button>'
+    + '<div class="links">' + links.join("") + "</div>"
+    + (v.why ? '<div class="why">' + esc(v.why) + "</div>" : "")
+    + "</div>";
+}
+
+function render() {
+  if (!queue.length) return finish();
+  const deck = $("#deck");
+  deck.innerHTML = (queue[1] ? cardHtml(queue[1], false) : "") + cardHtml(queue[0], true);
+  const total = items.length;
+  $("#count").textContent = (total - queue.length + 1) + " из " + total;
+  $("#bar").style.width = ((total - queue.length) / total * 100) + "%";
+  paintTally();
+  const el = deck.querySelector(".card.front");
+  el.querySelector(".more").onclick = ev => {
+    ev.stopPropagation();
+    const b = el.querySelector(".body");
+    b.classList.toggle("short");
+    ev.target.textContent = b.classList.contains("short") ? "читать целиком" : "свернуть";
+  };
+  drag(el);
+}
+
+function paintTally() {
+  const c = {};
+  Object.values(done).forEach(s => { c[s] = (c[s] || 0) + 1; });
+  $("#tally").textContent = ["взял", "нет", "отложен", "мимо"]
+    .filter(k => c[k]).map(k => LABEL[k].toLowerCase() + " " + c[k]).join("  ·  ");
+  $("#undo").disabled = !history.length;
+}
+
+function finish() {
+  const taken = items.filter(v => done[v.id] === "взял");
+  const n = Object.keys(done).length;
+  $("#deck").innerHTML = '<div class="empty"><h2>' + (n ? "Волна разобрана" : "Пока нечего смотреть") + "</h2>"
+    + "<p>" + (n ? "Решений: " + n + ". Осталось отправить их на разбор."
+                 : "Волна пуста. Она соберётся следующим прогоном отбора.") + "</p>"
+    + (taken.length ? '<div class="done">' + taken.map(v =>
+        '<div class="row"><i>беру</i><span>' + esc(v.role)
+        + (v.contact ? " · " + esc(v.contact) : "") + "</span></div>").join("") + "</div>" : "")
+    + (n ? '<button class="send" id="send">Отправить решения</button>' : "")
+    + "</div>";
+  $("#acts").hidden = true;
+  $("#count").textContent = "готово";
+  $("#bar").style.width = "100%";
+  paintTally();
+  const b = $("#send");
+  if (b) b.onclick = send;
+}
+
+/* ── жест ────────────────────────────────────────────────── */
+function drag(el) {
+  let x0 = null, dx = 0, moved = false;
+  const y = el.querySelector(".stamp.y"), n = el.querySelector(".stamp.n");
+  el.addEventListener("pointerdown", e => {
+    if (e.target.closest("a, button")) return;
+    x0 = e.clientX; dx = 0; moved = false; el.style.transition = "none";
+  });
+  el.addEventListener("pointermove", e => {
+    if (x0 === null) return;
+    dx = e.clientX - x0;
+    if (Math.abs(dx) > 6) moved = true;
+    el.style.transform = "translateX(" + dx + "px) rotate(" + (dx / 26) + "deg)";
+    y.style.opacity = dx > 0 ? Math.min(1, dx / 90) : 0;
+    n.style.opacity = dx < 0 ? Math.min(1, -dx / 90) : 0;
+  });
+  const up = () => {
+    if (x0 === null) return;
+    x0 = null;
+    el.style.transition = "transform .25s cubic-bezier(.2,.7,.3,1)";
+    if (moved && Math.abs(dx) > 88) return decide(dx > 0 ? "взял" : "нет");
+    el.style.transform = ""; y.style.opacity = 0; n.style.opacity = 0;
+  };
+  el.addEventListener("pointerup", up);
+  el.addEventListener("pointercancel", up);
+}
+
+/* ── решение ─────────────────────────────────────────────── */
+function decide(state) {
+  if (!queue.length) return;
+  const v = queue.shift();
+  done[v.id] = state;
+  history.push(v);
+  saveDone();
+  if (TG && TG.HapticFeedback) TG.HapticFeedback.impactOccurred("light");
+  const el = $("#deck").querySelector(".card.front");
+  if (el) {
+    const dir = state === "взял" ? 1 : state === "нет" ? -1 : 0;
+    el.classList.add("gone");
+    el.style.transform = dir
+      ? "translateX(" + dir * 460 + "px) rotate(" + dir * 18 + "deg)"
+      : "translateY(-340px) scale(.9)";
+    setTimeout(render, 190);
+  } else render();
+}
+
+function undo() {
+  if (!history.length) return;
+  const v = history.pop();
+  delete done[v.id];
+  saveDone();
+  queue.unshift(v);
+  render();
+}
+
+function send() {
+  const payload = { t: "svaip", built: (window.WAVE && WAVE.built) || "", v: done };
+  const raw = JSON.stringify(payload);
+  if (!TG || !TG.sendData) {
+    alert("Отправка работает только внутри Telegram. Открой приложение кнопкой в боте.");
+    return;
+  }
+  if (raw.length > 4000) {
+    alert("Решений слишком много для одной посылки. Отправь часть, потом остальное.");
+    return;
+  }
+  sent = true;
+  TG.sendData(raw);          // телеграм сам закроет приложение и отдаст боту
+}
+
+/* ── старт ───────────────────────────────────────────────── */
+document.querySelectorAll("[data-v]").forEach(b => b.onclick = () => decide(b.dataset.v));
+$("#undo").onclick = undo;
+
+(async function boot() {
+  done = await loadDone();
+  if (window.WAVE && WAVE.built) {
+    const age = Math.round((Date.now() - Date.parse(WAVE.built)) / 864e5);
+    if (age >= 3) $("#stale").innerHTML = '<div class="stale">Волна собрана '
+      + age + " дней назад. Часть вакансий могла закрыться.</div>";
+  }
+  queue = items.filter(v => !done[v.id]);
+  if (!items.length) return finish();
+  $("#acts").hidden = false;
+  render();
+})();
+</script>
+</body>
+</html>
