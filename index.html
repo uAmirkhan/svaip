@@ -82,20 +82,26 @@ body{
   font-variant-numeric:tabular-nums; letter-spacing:.01em}
 
 /* ── стопка ───────────────────────────────────────────────── */
-.deck{position:relative; flex:1; min-height:0; display:flex; align-items:flex-start}
-/* Высота по содержимому, а не во весь экран. Растянутая карточка оставляла
-   снизу пустое белое поле на треть экрана и выдавливала кнопки за край. */
+.deck{position:relative; flex:1; min-height:0}
+/* Карточка занимает всю доступную высоту, а свободное место забирает текст
+   объявления: на большом экране видно больше пунктов, на маленьком меньше.
+   Промежуточный вариант с высотой по содержимому оставлял снизу пустое
+   поле на треть экрана. */
 .card{
-  position:absolute; left:0; right:0; top:0; max-height:100%;
+  position:absolute; inset:0;
   background:var(--card); border-radius:var(--radius);
   box-shadow:var(--shadow); padding:16px 15px 14px; display:flex; flex-direction:column;
   gap:11px; overscroll-behavior:contain;
   will-change:transform; transform-origin:50% 130%;
 }
 .card::-webkit-scrollbar{width:0}
-.card[data-depth="1"]{transform:scale(.955) translateY(10px); z-index:2}
-.card[data-depth="2"]{transform:scale(.91) translateY(20px); z-index:1}
-.card[data-depth="1"],.card[data-depth="2"]{pointer-events:none; overflow:hidden}
+/* Следующая карточка лежит в DOM, но РОВНО под передней и не выглядывает.
+   Веер из трёх карточек, как у Tinder, здесь мешает: Khan сказал, что края
+   чужих карточек дробят внимание и заставляют глаз разбирать, где кончается
+   одна и начинается другая. Предзагрузка при этом сохраняется, поэтому
+   следующая появляется мгновенно и без пересборки. */
+.card[data-depth="1"]{z-index:2; pointer-events:none; overflow:hidden;
+  visibility:hidden}
 
 /* Два режима, и они не пересекаются.
    Свайп: прокрутки нет, touch-action:none, жест целиком наш.
@@ -140,10 +146,29 @@ body{
 .gap ul{margin:0; padding-left:16px; font-size:13px; color:var(--ink)}
 .gap li+li{margin-top:3px}
 
-.body{font-size:14px; line-height:1.5; color:var(--ink); white-space:pre-wrap;
-  word-break:break-word; flex:0 0 auto}
-.body.short{display:-webkit-box; -webkit-line-clamp:6; -webkit-box-orient:vertical;
-  overflow:hidden}
+/* Текст объявления размечается по его собственной структуре: заголовки
+   разделов, пункты списка, абзацы. Плоская простыня из того же текста
+   не читается с телефона. */
+.body{flex:1 1 auto; min-height:0; position:relative}
+.body h3{margin:14px 0 6px; font:700 11px/1 var(--font); color:var(--hint);
+  text-transform:uppercase; letter-spacing:.08em}
+.body h3:first-child{margin-top:2px}
+.body p{margin:0 0 8px; font-size:15px; line-height:1.5; color:var(--ink)}
+.body ul{margin:0 0 8px; padding:0; list-style:none}
+.body li{position:relative; padding-left:15px; margin-bottom:6px;
+  font-size:15px; line-height:1.45; color:var(--ink)}
+.body li::before{content:""; position:absolute; left:2px; top:.62em;
+  width:4px; height:4px; border-radius:50%; background:var(--hint)}
+/* Обрезка растворением, а не резким краем: так видно, что текст продолжается,
+   и не нужен отдельный признак «тут ещё есть». */
+.body.short{overflow:hidden;
+  -webkit-mask-image:linear-gradient(#000 76%, transparent);
+  mask-image:linear-gradient(#000 76%, transparent)}
+/* В чтении текст занимает СВОЮ высоту, а прокручивается карточка целиком.
+   Пока текст оставался растянутым по flex, он вылезал за свою ячейку и
+   накрывал кнопку «свернуть»: нажать её было невозможно. */
+.card.reading .body{flex:0 0 auto; overflow:visible;
+  -webkit-mask-image:none; mask-image:none}
 .more{align-self:flex-start; background:none; border:0; padding:3px 0; cursor:pointer;
   font:600 13px/1 var(--font); color:var(--link)}
 .links{display:flex; gap:16px; flex-wrap:wrap; font:500 13.5px/1 var(--font);
@@ -347,6 +372,42 @@ function saveDone() {
 }
 
 /* ── карточка ─────────────────────────────────────────────── */
+/* Разметка текста объявления по его собственной структуре.
+
+   Заголовок раздела: короткая строка без точки в конце, часто с двоеточием
+   («Задачи», «Требования:», «Мы предлагаем»). Пункт: строка, начинающаяся
+   с маркера. Остальное — абзац.
+
+   Декоративные эмодзи в начале строки снимаем: в посте они служили
+   разделителями, а здесь эту роль уже играет типографика. */
+const BULLET = /^\s*(?:[•·▪◦‣∙*+]|[-–—](?!\s*\d)|\d{1,2}[.)])\s+/;
+const DECOR  = /^[\s -　️‍\p{Extended_Pictographic}]+/u;
+
+function renderBody(text) {
+  const out = [];
+  let list = [];
+  const flush = () => { if (list.length) { out.push("<ul>" + list.join("") + "</ul>"); list = []; } };
+
+  for (const raw of String(text || "").split("\n")) {
+    const line = raw.trim();
+    if (!line) { flush(); continue; }
+    if (BULLET.test(line)) {
+      list.push("<li>" + esc(line.replace(BULLET, "").replace(DECOR, "").trim()) + "</li>");
+      continue;
+    }
+    flush();
+    const bare = line.replace(DECOR, "").trim();
+    if (!bare) continue;
+    const heading = bare.length <= 46 && !/[.!?…]$/.test(bare) &&
+                    (/:$/.test(bare) || bare.split(/\s+/).length <= 4);
+    out.push(heading
+      ? "<h3>" + esc(bare.replace(/:$/, "")) + "</h3>"
+      : "<p>" + esc(bare) + "</p>");
+  }
+  flush();
+  return out.join("");
+}
+
 function buildCard(v) {
   const chips = [];
   if (v.level && v.level !== "unspecified") chips.push([v.level, ""]);
@@ -375,7 +436,7 @@ function buildCard(v) {
         ? '<div class="gap"><h4>чего у тебя нет</h4><ul>'
           + v.missing.map(m => "<li>" + esc(m) + "</li>").join("") + "</ul></div>"
         : "")
-    + '<div class="body short">' + esc(v.text) + "</div>"
+    + '<div class="body short">' + renderBody(v.text) + "</div>"
     + '<button class="more">читать целиком</button>'
     + '<div class="links">' + links.join("") + "</div>"
     + (v.why ? '<div class="why">' + esc(v.why) + "</div>" : "");
@@ -392,7 +453,9 @@ function mount() {
   // nodes[0] всегда передняя карточка. Порядок в DOM не важен: слоями
   // управляет z-index по data-depth, иначе пришлось бы переставлять узлы
   // на каждом решении.
-  for (let i = 0; i < Math.min(3, queue.length); i++) {
+  // Две карточки, не три: видимой стопки нет, а для мгновенной подмены
+  // достаточно одной предзагруженной.
+  for (let i = 0; i < Math.min(2, queue.length); i++) {
     const el = buildCard(queue[i]);
     el.dataset.depth = i;
     deck.appendChild(el);
@@ -516,12 +579,12 @@ function decide(state, dir, speed) {
     setTimeout(() => el.remove(), 340);
   }
   // Следующая уже в DOM: повышаем её и дорисовываем новую в хвост стопки.
-  nodes.forEach((c, i) => { c.classList.add("settle"); c.dataset.depth = i; });
+  nodes.forEach((c, i) => { c.dataset.depth = i; });
   if (nodes[0]) attachFront(nodes[0]);
-  const tail = queue[2];
+  const tail = queue[1];
   if (tail) {
     const el2 = buildCard(tail);
-    el2.dataset.depth = 2;
+    el2.dataset.depth = 1;
     $("#deck").insertBefore(el2, $("#deck").firstChild);
     nodes.push(el2);
   }
