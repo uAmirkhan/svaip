@@ -2,330 +2,531 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <title>Свайп вакансий</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=PT+Sans+Narrow:wght@400;700&family=PT+Sans:wght@400;700&family=PT+Mono&display=swap">
 <style>
+/* Палитра берётся из темы Telegram. Своих цветов ровно четыре: смысловые
+   цвета решений. Всё остальное — переменные клиента, иначе приложение
+   выглядит вставленным сайтом, а не частью мессенджера.
+   Значения после запятой это запасной вариант, когда страницу открыли
+   в обычном браузере и переменных темы нет. */
 :root{
-  --ground:#F2F3F0; --surface:#FFFFFF; --surface2:#EAECE7;
-  --ink:#191D22; --ink-soft:#3C444E; --muted:#6E7681; --line:#DCDFD8;
-  --take:#2E6B4F; --take-bg:#E4EFE8;
-  --nope:#A33B32; --nope-bg:#F6E5E3;
-  --later:#8A5F16; --later-bg:#F5EBD8;
-  --wrong:#54468A; --wrong-bg:#E9E6F4;
-  --shadow:0 1px 2px rgba(25,29,34,.06), 0 12px 28px -12px rgba(25,29,34,.22);
+  --bg:      var(--tg-theme-secondary-bg-color, #EFEFF4);
+  --card:    var(--tg-theme-bg-color, #FFFFFF);
+  --ink:     var(--tg-theme-text-color, #16181C);
+  --hint:    var(--tg-theme-hint-color, #77808A);
+  --sep:     var(--tg-theme-section-separator-color, #E3E5E8);
+  --sub:     var(--tg-theme-subtitle-text-color, var(--hint));
+  --link:    var(--tg-theme-link-color, #2E7CF6);
+
+  --take:#1F9D62;  --nope:#D14338;  --later:#B57C12; --wrong:#6B57BC;
+  /* Подложки НЕ задаются вручную под каждую тему: они подмешиваются к
+     фактическому фону карточки, который пришёл из темы клиента. Так блок
+     остаётся читаемым, даже если класс тёмной темы не проставился, а
+     раньше в этом случае «чего у тебя нет» выходил светло-розовым с
+     невидимым текстом на тёмном фоне. Значения выше color-mix — запасные
+     для старых движков. */
+  --take-soft:#E3F3EB;  --nope-soft:#FBE7E5;
+  --later-soft:#FAF0DC; --wrong-soft:#EDEAF9;
+  --take-soft:color-mix(in srgb, var(--take) 13%, var(--card));
+  --nope-soft:color-mix(in srgb, var(--nope) 13%, var(--card));
+  --later-soft:color-mix(in srgb, var(--later) 15%, var(--card));
+  --wrong-soft:color-mix(in srgb, var(--wrong) 14%, var(--card));
+
+  --pad:14px;
+  --radius:18px;
+  --shadow:0 1px 3px rgba(0,0,0,.07), 0 14px 30px -16px rgba(0,0,0,.35);
+  --font:-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto,
+         "Helvetica Neue", system-ui, sans-serif;
 }
-:root.dark{
-  --ground:#101317; --surface:#181C22; --surface2:#20252C;
-  --ink:#E6E9ED; --ink-soft:#C2C8D0; --muted:#8A929C; --line:#272C34;
-  --take:#63C295; --take-bg:#163024;
-  --nope:#E0776B; --nope-bg:#33201D;
-  --later:#D9A441; --later-bg:#332715;
-  --wrong:#A695DE; --wrong-bg:#251F3A;
-  --shadow:0 1px 2px rgba(0,0,0,.4), 0 14px 30px -14px rgba(0,0,0,.7);
+/* Тёмная тема Telegram: смысловые цвета осветляем, подложки затемняем.
+   Признак — класс, который ставит скрипт по colorScheme, а не медиазапрос:
+   клиент может дать тёмную тему при светлой системной и наоборот. */
+/* Смысловые цвета на тёмном фоне осветляются. Правило дублируется для двух
+   признаков темноты: класс от клиента Telegram и системная тема браузера.
+   Полагаться только на класс нельзя — он не проставится, если клиент не
+   сообщил colorScheme, и текст окажется тёмным на тёмном. */
+:root.dark, :root.dark .card{
+  --take:#41C98A; --nope:#F0796D; --later:#DFAE4E; --wrong:#A695E8;
+  --shadow:0 1px 3px rgba(0,0,0,.5), 0 16px 34px -16px rgba(0,0,0,.8);
 }
-*{box-sizing:border-box}
-html,body{margin:0}
+@media (prefers-color-scheme: dark){
+  :root:not(.light){
+    --take:#41C98A; --nope:#F0796D; --later:#DFAE4E; --wrong:#A695E8;
+    --shadow:0 1px 3px rgba(0,0,0,.5), 0 16px 34px -16px rgba(0,0,0,.8);
+  }
+}
+
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+html,body{margin:0; height:100%; overscroll-behavior:none}
 body{
-  background:var(--ground); color:var(--ink);
-  font:400 15px/1.5 "PT Sans","Segoe UI",system-ui,sans-serif;
-  min-height:100dvh; display:flex; justify-content:center;
-  -webkit-tap-highlight-color:transparent; overscroll-behavior:none;
+  background:var(--bg); color:var(--ink); font:400 15px/1.45 var(--font);
+  display:flex; justify-content:center;
+  padding:calc(var(--tg-content-safe-area-inset-top, 0px) + 6px)
+          var(--tg-safe-area-inset-right, 0px)
+          calc(var(--tg-safe-area-inset-bottom, 0px) + 6px)
+          var(--tg-safe-area-inset-left, 0px);
+  height:var(--tg-viewport-stable-height, 100dvh);
+  overflow:hidden;
 }
-.app{width:100%; max-width:460px; display:flex; flex-direction:column;
-     min-height:100dvh; padding:10px 12px calc(12px + env(safe-area-inset-bottom))}
-.head{display:flex; align-items:baseline; gap:10px; padding:2px 2px 10px}
-.head h1{font:700 17px/1 "PT Sans Narrow",sans-serif; letter-spacing:.02em;
-         margin:0; text-transform:uppercase}
-.count{font:400 12px/1 "PT Mono",ui-monospace,monospace; color:var(--muted);
-       margin-left:auto; font-variant-numeric:tabular-nums}
-.bar{height:3px; background:var(--line); border-radius:2px; overflow:hidden; margin-bottom:12px}
-.bar i{display:block; height:100%; background:var(--ink-soft); width:0;
-       transition:width .35s cubic-bezier(.2,.7,.3,1)}
-.deck{position:relative; flex:1; min-height:400px}
+.app{width:100%; max-width:480px; display:flex; flex-direction:column;
+     padding:0 var(--pad); min-height:0}
+
+/* ── прогресс ─────────────────────────────────────────────── */
+.rail{display:flex; align-items:center; gap:10px; padding:2px 2px 9px; flex:none}
+.rail .track{flex:1; height:3px; background:var(--sep); border-radius:99px; overflow:hidden}
+.rail .track i{display:block; height:100%; width:0; background:var(--ink); opacity:.55;
+  border-radius:99px; transition:width .4s cubic-bezier(.22,.68,.28,1)}
+.rail .num{font:600 12px/1 var(--font); color:var(--hint);
+  font-variant-numeric:tabular-nums; letter-spacing:.01em}
+
+/* ── стопка ───────────────────────────────────────────────── */
+.deck{position:relative; flex:1; min-height:0; display:flex; align-items:flex-start}
+/* Высота по содержимому, а не во весь экран. Растянутая карточка оставляла
+   снизу пустое белое поле на треть экрана и выдавливала кнопки за край. */
 .card{
-  position:absolute; inset:0; background:var(--surface);
-  border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow);
-  padding:16px 16px 14px; overflow-y:auto; overscroll-behavior:contain;
-  display:flex; flex-direction:column; gap:11px; touch-action:pan-y;
+  position:absolute; left:0; right:0; top:0; max-height:100%;
+  background:var(--card); border-radius:var(--radius);
+  box-shadow:var(--shadow); padding:16px 15px 14px; display:flex; flex-direction:column;
+  gap:11px; overscroll-behavior:contain;
+  will-change:transform; transform-origin:50% 130%;
 }
-.card.behind{transform:scale(.965) translateY(9px); opacity:.55; pointer-events:none; z-index:0}
-.card.front{z-index:2}
-.card.gone{transition:transform .3s ease-in, opacity .3s ease-in; opacity:0}
-.top{display:flex; align-items:flex-start; gap:11px}
-.score{font:400 21px/1 "PT Mono",ui-monospace,monospace; font-variant-numeric:tabular-nums;
-  color:var(--ink); background:var(--surface2); border-radius:9px;
-  padding:8px 9px; min-width:52px; text-align:center; flex:none}
-.score small{display:block; font:400 8.5px/1.4 "PT Sans",sans-serif;
-  color:var(--muted); text-transform:uppercase; letter-spacing:.09em; margin-top:3px}
-.ttl{font:700 20px/1.18 "PT Sans Narrow",sans-serif; margin:0; text-wrap:balance}
-.sub{font-size:12.5px; color:var(--muted); margin-top:4px}
-.sub b{color:var(--ink-soft); font-weight:700}
-.facts{display:flex; flex-wrap:wrap; gap:5px}
-.chip{font:400 11.5px/1 "PT Sans",sans-serif; padding:5px 8px; border-radius:6px;
-  background:var(--surface2); color:var(--ink-soft); white-space:nowrap}
-.chip.hot{background:var(--take-bg); color:var(--take); font-weight:700}
-.chip.pin{background:var(--later-bg); color:var(--later)}
-.gap{background:var(--nope-bg); border-radius:9px; padding:9px 11px}
-.gap h4{margin:0 0 4px; font:700 10px/1 "PT Sans",sans-serif; color:var(--nope);
-  text-transform:uppercase; letter-spacing:.09em}
-.gap ul{margin:0; padding-left:15px; font-size:13px; color:var(--ink-soft)}
-.body{font-size:13.5px; line-height:1.55; color:var(--ink-soft); flex:1;
-  white-space:pre-wrap; word-break:break-word}
-.body.short{display:-webkit-box; -webkit-line-clamp:7; -webkit-box-orient:vertical; overflow:hidden}
-.more{align-self:flex-start; background:none; border:0; padding:2px 0; cursor:pointer;
-  font:400 12.5px/1 "PT Sans",sans-serif; color:var(--muted); text-decoration:underline}
-.links{display:flex; gap:14px; flex-wrap:wrap; font-size:13px; padding-top:2px}
-.links a{color:var(--ink); text-underline-offset:3px}
-.why{font:400 11px/1.45 "PT Mono",ui-monospace,monospace; color:var(--muted);
-  border-top:1px dashed var(--line); padding-top:8px; word-break:break-word}
-.stamp{position:absolute; top:20px; font:700 15px/1 "PT Sans Narrow",sans-serif;
-  text-transform:uppercase; letter-spacing:.12em; padding:7px 12px;
-  border:2px solid currentColor; border-radius:7px; opacity:0; pointer-events:none}
-.stamp.y{left:16px; color:var(--take); transform:rotate(-11deg)}
-.stamp.n{right:16px; color:var(--nope); transform:rotate(11deg)}
-.acts{display:grid; grid-template-columns:repeat(4,1fr); gap:7px; padding-top:12px}
-.act{font:700 12.5px/1.25 "PT Sans",sans-serif; padding:13px 4px; border-radius:11px;
-  border:1px solid var(--line); background:var(--surface); color:var(--ink-soft);
-  cursor:pointer; transition:transform .1s}
-.act:active{transform:scale(.95)}
-.act .k{display:block; font:400 9.5px/1 "PT Sans",sans-serif; color:var(--muted);
-  margin-top:4px; letter-spacing:.05em}
-.act.take{background:var(--take-bg); color:var(--take); border-color:transparent}
-.act.nope{background:var(--nope-bg); color:var(--nope); border-color:transparent}
-.act.later{background:var(--later-bg); color:var(--later); border-color:transparent}
-.act.wrong{background:var(--wrong-bg); color:var(--wrong); border-color:transparent}
-.foot{display:flex; align-items:center; gap:12px; padding-top:9px; min-height:26px}
-.undo{background:none; border:0; padding:0; cursor:pointer; color:var(--muted);
-  font:400 12.5px/1 "PT Sans",sans-serif; text-decoration:underline}
-.undo[disabled]{opacity:.35; cursor:default; text-decoration:none}
-.tally{margin-left:auto; font:400 11.5px/1 "PT Mono",ui-monospace,monospace;
-  color:var(--muted); font-variant-numeric:tabular-nums}
-.empty{background:var(--surface); border:1px solid var(--line); border-radius:14px;
-  padding:26px 20px; text-align:center; box-shadow:var(--shadow)}
-.empty h2{font:700 21px/1.2 "PT Sans Narrow",sans-serif; margin:0 0 8px}
-.empty p{color:var(--muted); font-size:14px; margin:0 0 6px}
-.send{margin-top:16px; width:100%; padding:15px; border:0; border-radius:12px;
-  background:var(--take); color:#fff; font:700 15px/1 "PT Sans",sans-serif; cursor:pointer}
-.send[disabled]{opacity:.5}
-.done{display:flex; flex-direction:column; gap:7px; margin-top:16px; text-align:left}
-.done .row{display:flex; gap:9px; align-items:baseline; font-size:13.5px;
-  border-top:1px solid var(--line); padding-top:7px}
-.done .row i{font-style:normal; font:400 10px/1.6 "PT Sans",sans-serif;
-  text-transform:uppercase; letter-spacing:.07em; flex:none; width:78px; color:var(--muted)}
-.stale{background:var(--later-bg); color:var(--later); border-radius:9px;
-  padding:9px 11px; font-size:12.5px; margin-bottom:10px}
-@media (prefers-reduced-motion: reduce){*{transition:none!important}}
+.card::-webkit-scrollbar{width:0}
+.card[data-depth="1"]{transform:scale(.955) translateY(10px); z-index:2}
+.card[data-depth="2"]{transform:scale(.91) translateY(20px); z-index:1}
+.card[data-depth="1"],.card[data-depth="2"]{pointer-events:none; overflow:hidden}
+
+/* Два режима, и они не пересекаются.
+   Свайп: прокрутки нет, touch-action:none, жест целиком наш.
+   Чтение: прокрутка есть, свайп выключен.
+
+   Так это устроено потому, что совмещать их нельзя. Пока карточка была и
+   прокручиваемой, и тянущейся, браузер на МЕДЛЕННОМ движении решал, что
+   началась прокрутка, отбирал жест и слал pointercancel — карточка
+   возвращалась на место. Быстрый флик успевал проскочить до этого решения,
+   поэтому работал только он. */
+.card[data-depth="0"]{z-index:3; overflow:hidden; touch-action:none;
+  user-select:none; -webkit-user-select:none}
+.card[data-depth="0"].reading{overflow-y:auto; touch-action:pan-y; user-select:text;
+  -webkit-user-select:text}
+.card.settle{transition:transform .3s cubic-bezier(.22,.68,.28,1)}
+.card.fly{transition:transform .34s cubic-bezier(.3,.1,.3,1), opacity .34s ease-out; opacity:0}
+
+/* шапка карточки */
+.top{display:flex; align-items:flex-start; gap:12px}
+.dial{
+  --p:0; position:relative; flex:none; width:50px; height:50px; border-radius:50%;
+  background:conic-gradient(var(--take) calc(var(--p) * 1%), var(--sep) 0);
+  display:grid; place-items:center;
+}
+.dial::after{content:""; position:absolute; inset:3.5px; border-radius:50%; background:var(--card)}
+.dial b{position:relative; z-index:1; font:700 16px/1 var(--font);
+  font-variant-numeric:tabular-nums; letter-spacing:-.02em}
+.ttl{font:700 19px/1.22 var(--font); margin:0; letter-spacing:-.015em; text-wrap:balance}
+.sub{font:400 12.5px/1.35 var(--font); color:var(--sub); margin-top:4px}
+.sub b{font-weight:600; color:var(--ink)}
+
+.facts{display:flex; flex-wrap:wrap; gap:6px}
+.chip{font:500 12px/1 var(--font); padding:6px 9px; border-radius:8px;
+  background:var(--bg); color:var(--sub); white-space:nowrap}
+.chip.hot{background:var(--take-soft); color:var(--take)}
+.chip.pay{background:var(--later-soft); color:var(--later)}
+.chip.dm{background:var(--wrong-soft); color:var(--wrong)}
+
+.gap{background:var(--nope-soft); border-radius:12px; padding:10px 12px}
+.gap h4{margin:0 0 5px; font:700 10.5px/1 var(--font); color:var(--nope);
+  text-transform:uppercase; letter-spacing:.07em}
+.gap ul{margin:0; padding-left:16px; font-size:13px; color:var(--ink)}
+.gap li+li{margin-top:3px}
+
+.body{font-size:14px; line-height:1.5; color:var(--ink); white-space:pre-wrap;
+  word-break:break-word; flex:0 0 auto}
+.body.short{display:-webkit-box; -webkit-line-clamp:6; -webkit-box-orient:vertical;
+  overflow:hidden}
+.more{align-self:flex-start; background:none; border:0; padding:3px 0; cursor:pointer;
+  font:600 13px/1 var(--font); color:var(--link)}
+.links{display:flex; gap:16px; flex-wrap:wrap; font:500 13.5px/1 var(--font);
+  padding-top:2px; flex:none}
+.links a{color:var(--link); text-decoration:none}
+.links span{color:var(--sub)}
+.why{font:400 11.5px/1.4 var(--font); color:var(--hint);
+  border-top:1px solid var(--sep); padding-top:9px; flex:none}
+
+/* штампы решения */
+.stamp{position:absolute; top:18px; z-index:4; font:800 16px/1 var(--font);
+  text-transform:uppercase; letter-spacing:.1em; padding:8px 13px;
+  border:2.5px solid currentColor; border-radius:9px; opacity:0; pointer-events:none}
+.stamp.y{left:15px; color:var(--take); transform:rotate(-12deg)}
+.stamp.n{right:15px; color:var(--nope); transform:rotate(12deg)}
+
+/* ── кнопки ───────────────────────────────────────────────── */
+.acts{display:flex; justify-content:space-between; align-items:flex-start;
+  gap:4px; padding:12px 2px 2px; flex:none}
+.act{background:none; border:0; padding:0; cursor:pointer; display:flex;
+  flex-direction:column; align-items:center; gap:5px; flex:1 1 0; min-width:0}
+.act .o{width:52px; height:52px; border-radius:50%; display:grid; place-items:center;
+  font:400 22px/1 var(--font); background:var(--card); box-shadow:var(--shadow);
+  transition:transform .12s ease}
+.act:active .o{transform:scale(.9)}
+.act .t{font:500 10.5px/1.15 var(--font); color:var(--hint); text-align:center}
+.act.nope .o{color:var(--nope)}  .act.take .o{color:var(--take)}
+.act.later .o{color:var(--later)} .act.wrong .o{color:var(--wrong)}
+.act.take .o{width:58px; height:58px; font-size:25px}
+.act.nope .o{width:58px; height:58px; font-size:25px}
+.act:disabled{opacity:.35; cursor:default}
+/* «Вернуть» живёт в строке прогресса, а не среди кнопок решения: там она
+   лезла на «беру» и её было легко задеть большим пальцем. */
+.undo{background:none; border:0; padding:3px 0 3px 8px; flex:none;
+  font:600 12.5px/1 var(--font); color:var(--link); cursor:pointer}
+.undo[disabled]{opacity:.28}
+
+/* ── состояния ────────────────────────────────────────────── */
+.sheet{position:absolute; inset:0; background:var(--card); border-radius:var(--radius);
+  box-shadow:var(--shadow); padding:26px 20px; display:flex; flex-direction:column;
+  overflow-y:auto; z-index:5}
+.sheet h2{font:700 21px/1.2 var(--font); margin:0 0 8px; letter-spacing:-.02em}
+.sheet p{color:var(--sub); font-size:14px; margin:0 0 4px}
+.tally{display:flex; flex-wrap:wrap; gap:7px; margin:16px 0 4px}
+.tally .t{font:600 12.5px/1 var(--font); padding:8px 11px; border-radius:9px}
+.done{margin-top:14px; display:flex; flex-direction:column}
+.done .r{display:flex; gap:10px; align-items:baseline; font-size:13.5px;
+  border-top:1px solid var(--sep); padding:9px 0}
+.done .r i{font-style:normal; font:600 10px/1.5 var(--font); color:var(--take);
+  text-transform:uppercase; letter-spacing:.06em; flex:none; width:34px}
+.note{background:var(--later-soft); color:var(--later); border-radius:11px;
+  padding:10px 12px; font-size:12.5px; margin-bottom:10px; flex:none}
+
+/* скелет: рисуем каркас сразу, чтобы первый кадр не был пустым */
+.skel{position:absolute; inset:0; background:var(--card); border-radius:var(--radius);
+  box-shadow:var(--shadow); padding:16px 15px; display:flex; flex-direction:column; gap:12px}
+.skel div{background:var(--sep); border-radius:7px; animation:pulse 1.3s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:.55} 50%{opacity:.95}}
+@media (prefers-reduced-motion: reduce){*{transition:none !important; animation:none !important}}
 </style>
 </head>
 <body>
 <div class="app">
-  <div class="head">
-    <h1>Свайп вакансий</h1>
-    <span class="count" id="count"></span>
+  <div class="rail">
+    <span class="num" id="num"></span>
+    <span class="track"><i id="bar"></i></span>
+    <button class="undo" id="undo" disabled>вернуть</button>
   </div>
-  <div class="bar"><i id="bar"></i></div>
-  <div id="stale"></div>
-  <div class="deck" id="deck"></div>
+  <div class="deck" id="deck">
+    <div class="skel">
+      <div style="height:50px;width:50px;border-radius:50%"></div>
+      <div style="height:22px;width:78%"></div>
+      <div style="height:13px;width:52%"></div>
+      <div style="height:30px;width:100%"></div>
+      <div style="height:13px;width:96%"></div>
+      <div style="height:13px;width:90%"></div>
+      <div style="height:13px;width:66%"></div>
+    </div>
+  </div>
   <div class="acts" id="acts" hidden>
-    <button class="act nope"  data-v="нет">Точно нет<span class="k">никогда</span></button>
-    <button class="act wrong" data-v="мимо">Не та роль<span class="k">чинит фильтр</span></button>
-    <button class="act later" data-v="отложен">Отложить<span class="k">через неделю</span></button>
-    <button class="act take"  data-v="взял">Беру<span class="k">на доску</span></button>
-  </div>
-  <div class="foot">
-    <button class="undo" id="undo" disabled>вернуть последнюю</button>
-    <span class="tally" id="tally"></span>
+    <button class="act nope"  data-v="нет"><span class="o">✕</span><span class="t">точно нет</span></button>
+    <button class="act wrong" data-v="мимо"><span class="o">⌖</span><span class="t">не та роль</span></button>
+    <button class="act later" data-v="отложен"><span class="o">↻</span><span class="t">отложить</span></button>
+    <button class="act take"  data-v="взял"><span class="o">✓</span><span class="t">беру</span></button>
   </div>
 </div>
 
 <script src="wave.js"></script>
 <script>
-/* Мини-приложение Telegram. Ни сервера, ни логина.
+/* Мини-приложение Telegram: разбор волны вакансий свайпом.
 
-   Волна вшита в wave.js при выкладке. Решения копятся в CloudStorage самого
-   телеграма, поэтому переживают закрытие приложения и потерю связи. В конце
-   одна кнопка отдаёт их боту через sendData, и машина раскладывает их по
-   файлам. Если компьютер выключен, телеграм держит посылку сутки и отдаст,
-   когда бот проснётся: решение не теряется, просто записывается позже. */
+   Три вещи, ради которых оно устроено именно так.
+
+   1. Палитра из темы клиента. Свои цвета только у решений, остальное берётся
+      из --tg-theme-*. Иначе приложение выглядит вставленным сайтом.
+   2. disableVerticalSwipes обязателен. Без него горизонтальный жест по
+      карточке цепляет системный жест сворачивания, и приложение закрывается
+      посреди разбора.
+   3. Главное действие живёт в родной MainButton, а не в своей кнопке внизу.
+
+   Решения копятся в CloudStorage телеграма, поэтому переживают закрытие и
+   офлайн, и уезжают боту одной посылкой. */
 const TG = window.Telegram && window.Telegram.WebApp;
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
-const LABEL = { взял: "Беру", нет: "Точно нет", отложен: "Отложил", мимо: "Не та роль" };
+const LABEL = { взял: "беру", нет: "точно нет", отложен: "отложил", мимо: "не та роль" };
+const TONE  = { взял: "take", нет: "nope", отложен: "later", мимо: "wrong" };
 const DOMAIN = {
   gamedev: "геймдев", ai: "AI", fintech: "финтех", b2b_saas: "B2B SaaS",
   crypto: "крипта", outsource: "аутсорс", retail_logistics: "ритейл и логистика",
-  neutral: "", gov: "госсектор"
+  gov: "госсектор", neutral: ""
 };
 const FORMAT = {
   remote: "удалёнка", hybrid_msk: "гибрид Москва", office_msk: "офис Москва",
   office_ru: "офис в РФ", cis: "СНГ", abroad: "зарубеж", unspecified: ""
 };
 const KEY = "verdicts";
+const THROW = 92;     // порог решения в пикселях
+const FLICK = 0.65;   // порог броска в пикселях за миллисекунду
 
-let items = (window.WAVE && WAVE.items) || [];
-let done = {}, queue = [], history = [], sent = false;
+const items = (window.WAVE && WAVE.items) || [];
+let done = {}, queue = [], history = [], nodes = [];
 
-/* ── тема из телеграма ───────────────────────────────────── */
-if (TG) {
-  TG.ready(); TG.expand();
-  const paint = () => {
-    document.documentElement.classList.toggle("dark", TG.colorScheme === "dark");
-    try { TG.setHeaderColor(TG.colorScheme === "dark" ? "#101317" : "#F2F3F0"); } catch (e) {}
-  };
-  paint();
-  TG.onEvent("themeChanged", paint);
-} else if (matchMedia("(prefers-color-scheme: dark)").matches) {
-  document.documentElement.classList.add("dark");
+/* ── платформа ────────────────────────────────────────────── */
+function haptic(kind, arg) {
+  if (!TG || !TG.HapticFeedback) return;
+  try { TG.HapticFeedback[kind](arg); } catch (e) {}
 }
 
-/* ── хранилище решений ───────────────────────────────────── */
-function loadDone() {
-  return new Promise(res => {
-    if (!TG || !TG.CloudStorage) {
-      try { res(JSON.parse(localStorage.getItem(KEY) || "{}")); }
-      catch (e) { res({}); }
-      return;
-    }
-    TG.CloudStorage.getItem(KEY, (err, val) => {
-      if (err || !val) return res({});
-      try { res(JSON.parse(val)); } catch (e) { res({}); }
-    });
+function initTelegram() {
+  if (!TG) {
+    if (matchMedia("(prefers-color-scheme: dark)").matches)
+      document.documentElement.classList.add("dark");
+    return;
+  }
+  TG.ready();                       // сразу, иначе клиент мигает пустым экраном
+  TG.expand();
+  try { TG.disableVerticalSwipes(); } catch (e) {}   // Bot API 7.7+
+  const theme = () => {
+    // Ставим ОБА класса, а не один: тема клиента может расходиться с системной,
+    // и без явного .light приложение в светлом Telegram на тёмном телефоне
+    // получило бы осветлённые цвета из медиазапроса.
+    const dark = TG.colorScheme === "dark";
+    document.documentElement.classList.toggle("dark", dark);
+    document.documentElement.classList.toggle("light", !dark);
+    try {
+      TG.setHeaderColor("secondary_bg_color");
+      TG.setBackgroundColor("secondary_bg_color");
+    } catch (e) {}
+  };
+  theme();
+  TG.onEvent("themeChanged", theme);
+}
+
+/* Главная кнопка Telegram. Показываем её только когда есть что отправлять:
+   пустая кнопка внизу экрана занимает место и сбивает с толку. */
+function syncMainButton() {
+  if (!TG || !TG.MainButton) return;
+  const n = Object.keys(done).length;
+  if (!n) return TG.MainButton.hide();
+  TG.MainButton.setParams({
+    text: queue.length ? `Отправить ${n}` : `Отправить решения (${n})`,
+    is_active: true, is_visible: true
   });
 }
+
+/* ── хранилище ────────────────────────────────────────────── */
+/* CloudStorage появился в Bot API 6.9. На клиенте постарше он не просто
+   отсутствует: вызов БРОСАЕТ WebAppMethodUnsupported прямо в момент обращения.
+   Первая версия ловила только отсутствие объекта, промис не резолвился, и
+   приложение навсегда зависало на скелете. Поэтому здесь и try/catch, и
+   сторож по времени: обещание обязано разрешиться при любом раскладе. */
+const local = {
+  get() { try { return JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { return {}; } },
+  set(raw) { try { localStorage.setItem(KEY, raw); } catch (e) {} }
+};
+
+const loadDone = () => new Promise(res => {
+  let answered = false;
+  const done1 = v => { if (!answered) { answered = true; res(v); } };
+  setTimeout(() => done1(local.get()), 1500);        // сторож
+  if (!TG || !TG.CloudStorage || !TG.isVersionAtLeast || !TG.isVersionAtLeast("6.9"))
+    return done1(local.get());
+  try {
+    TG.CloudStorage.getItem(KEY, (err, val) => {
+      if (err || !val) return done1(local.get());
+      try { done1(JSON.parse(val)); } catch (e) { done1({}); }
+    });
+  } catch (e) { done1(local.get()); }
+});
+
 function saveDone() {
   const raw = JSON.stringify(done);
-  if (TG && TG.CloudStorage) TG.CloudStorage.setItem(KEY, raw, () => {});
-  else { try { localStorage.setItem(KEY, raw); } catch (e) {} }
+  local.set(raw);                                   // всегда, это дешёвый запасной путь
+  if (TG && TG.CloudStorage && TG.isVersionAtLeast && TG.isVersionAtLeast("6.9")) {
+    try { TG.CloudStorage.setItem(KEY, raw, () => {}); } catch (e) {}
+  }
+  syncMainButton();
 }
 
-/* ── карточка ────────────────────────────────────────────── */
-function cardHtml(v, front) {
+/* ── карточка ─────────────────────────────────────────────── */
+function buildCard(v) {
   const chips = [];
   if (v.level && v.level !== "unspecified") chips.push([v.level, ""]);
   const dom = DOMAIN[v.domain]; if (dom) chips.push([dom, "hot"]);
   const fmt = FORMAT[v.format]; if (fmt) chips.push([fmt, ""]);
-  if (v.salary) chips.push([v.salary, "pin"]);
-  if (v.stream === "личка") chips.push(["писать самому", ""]);
+  if (v.salary) chips.push([v.salary, "pay"]);
+  if (v.stream === "личка") chips.push(["писать самому", "dm"]);
 
-  const gaps = (v.missing || []).length
-    ? '<div class="gap"><h4>чего у тебя нет</h4><ul>'
-      + v.missing.map(m => "<li>" + esc(m) + "</li>").join("") + "</ul></div>"
-    : "";
   const links = [];
   if (v.apply) links.push('<a href="' + esc(v.apply) + '" target="_blank" rel="noopener">откликнуться</a>');
-  if (v.contact) links.push("<span>написать " + esc(v.contact) + "</span>");
+  if (v.contact) links.push("<span>" + esc(v.contact) + "</span>");
   if (v.url) links.push('<a href="' + esc(v.url) + '" target="_blank" rel="noopener">пост</a>');
 
-  return '<div class="card ' + (front ? "front" : "behind") + '">'
-    + '<span class="stamp y">беру</span><span class="stamp n">нет</span>'
-    + '<div class="top"><div class="score">' + esc(v.priority)
-    + '<small>балл</small></div><div><h2 class="ttl">' + esc(v.role) + "</h2>"
+  const el = document.createElement("div");
+  el.className = "card";
+  el.innerHTML =
+      '<span class="stamp y">беру</span><span class="stamp n">нет</span>'
+    + '<div class="top"><div class="dial" style="--p:' + Math.max(0, Math.min(100, v.priority)) + '">'
+    + "<b>" + esc(Math.round(v.priority)) + "</b></div><div>"
+    + '<h2 class="ttl">' + esc(v.role) + "</h2>"
     + '<div class="sub">' + (v.company ? "<b>" + esc(v.company) + "</b> · " : "")
-    + "@" + esc(v.channel) + " · " + esc(v.posted) + "</div></div></div>"
+    + esc(v.channel) + " · " + esc(v.posted) + "</div></div></div>"
     + '<div class="facts">' + chips.map(([t, c]) =>
         '<span class="chip ' + c + '">' + esc(t) + "</span>").join("") + "</div>"
-    + gaps
+    + ((v.missing || []).length
+        ? '<div class="gap"><h4>чего у тебя нет</h4><ul>'
+          + v.missing.map(m => "<li>" + esc(m) + "</li>").join("") + "</ul></div>"
+        : "")
     + '<div class="body short">' + esc(v.text) + "</div>"
     + '<button class="more">читать целиком</button>'
     + '<div class="links">' + links.join("") + "</div>"
-    + (v.why ? '<div class="why">' + esc(v.why) + "</div>" : "")
-    + "</div>";
+    + (v.why ? '<div class="why">' + esc(v.why) + "</div>" : "");
+  return el;
 }
 
-function render() {
-  if (!queue.length) return finish();
+/* Стопка из трёх карточек. Карточки не пересобираются: передняя улетает,
+   следующая повышается в звании. Пересборка на каждом решении заметна
+   глазом как мигание. */
+function mount() {
   const deck = $("#deck");
-  deck.innerHTML = (queue[1] ? cardHtml(queue[1], false) : "") + cardHtml(queue[0], true);
-  const total = items.length;
-  $("#count").textContent = (total - queue.length + 1) + " из " + total;
-  $("#bar").style.width = ((total - queue.length) / total * 100) + "%";
-  paintTally();
-  const el = deck.querySelector(".card.front");
+  deck.innerHTML = "";
+  nodes = [];
+  // nodes[0] всегда передняя карточка. Порядок в DOM не важен: слоями
+  // управляет z-index по data-depth, иначе пришлось бы переставлять узлы
+  // на каждом решении.
+  for (let i = 0; i < Math.min(3, queue.length); i++) {
+    const el = buildCard(queue[i]);
+    el.dataset.depth = i;
+    deck.appendChild(el);
+    nodes.push(el);
+  }
+  if (nodes[0]) attachFront(nodes[0]);
+  paintRail();
+}
+
+function attachFront(el) {
+  el.dataset.depth = 0;
   el.querySelector(".more").onclick = ev => {
     ev.stopPropagation();
     const b = el.querySelector(".body");
-    b.classList.toggle("short");
-    ev.target.textContent = b.classList.contains("short") ? "читать целиком" : "свернуть";
+    const folded = b.classList.toggle("short");
+    // Раскрытый текст = режим чтения: включаем прокрутку и гасим свайп,
+    // чтобы жесты не спорили за один и тот же палец.
+    el.classList.toggle("reading", !folded);
+    ev.target.textContent = folded ? "читать целиком" : "свернуть";
+    if (!folded) { el.scrollTop = 0; haptic("selectionChanged"); }
+    backButton(!folded, () => el.querySelector(".more").click());
   };
   drag(el);
 }
 
-function paintTally() {
-  const c = {};
-  Object.values(done).forEach(s => { c[s] = (c[s] || 0) + 1; });
-  $("#tally").textContent = ["взял", "нет", "отложен", "мимо"]
-    .filter(k => c[k]).map(k => LABEL[k].toLowerCase() + " " + c[k]).join("  ·  ");
+/* Родная кнопка «назад» вместо своей: в режиме чтения ею сворачиваем текст,
+   иначе она закрывает приложение и разбор теряется. */
+let backHandler = null;
+function backButton(on, fn) {
+  if (!TG || !TG.BackButton) return;
+  try {
+    if (backHandler) { TG.BackButton.offClick(backHandler); backHandler = null; }
+    if (on) { backHandler = fn; TG.BackButton.onClick(fn); TG.BackButton.show(); }
+    else TG.BackButton.hide();
+  } catch (e) {}
+}
+
+function paintRail() {
+  const total = items.length;
+  const seen = total - queue.length;
+  $("#num").textContent = Math.min(seen + 1, total) + " / " + total;
+  $("#bar").style.width = (seen / total * 100) + "%";
   $("#undo").disabled = !history.length;
 }
 
-function finish() {
-  const taken = items.filter(v => done[v.id] === "взял");
-  const n = Object.keys(done).length;
-  $("#deck").innerHTML = '<div class="empty"><h2>' + (n ? "Волна разобрана" : "Пока нечего смотреть") + "</h2>"
-    + "<p>" + (n ? "Решений: " + n + ". Осталось отправить их на разбор."
-                 : "Волна пуста. Она соберётся следующим прогоном отбора.") + "</p>"
-    + (taken.length ? '<div class="done">' + taken.map(v =>
-        '<div class="row"><i>беру</i><span>' + esc(v.role)
-        + (v.contact ? " · " + esc(v.contact) : "") + "</span></div>").join("") + "</div>" : "")
-    + (n ? '<button class="send" id="send">Отправить решения</button>' : "")
-    + "</div>";
-  $("#acts").hidden = true;
-  $("#count").textContent = "готово";
-  $("#bar").style.width = "100%";
-  paintTally();
-  const b = $("#send");
-  if (b) b.onclick = send;
-}
-
-/* ── жест ────────────────────────────────────────────────── */
+/* ── жест ─────────────────────────────────────────────────── */
 function drag(el) {
-  let x0 = null, dx = 0, moved = false;
   const y = el.querySelector(".stamp.y"), n = el.querySelector(".stamp.n");
+  let id = null, x0 = 0, yy0 = 0, t0 = 0, dx = 0, axis = null, crossed = false;
+
   el.addEventListener("pointerdown", e => {
     if (e.target.closest("a, button")) return;
-    x0 = e.clientX; dx = 0; moved = false; el.style.transition = "none";
+    if (el.classList.contains("reading")) return;   // в чтении свайпа нет
+    id = e.pointerId; x0 = e.clientX; yy0 = e.clientY; t0 = e.timeStamp;
+    dx = 0; axis = null; crossed = false;
+    el.classList.remove("settle");
+    // Захват сразу, а не после выбора оси: пока мы «думаем», браузер успевает
+    // забрать жест себе. Именно на этом ломался медленный свайп.
+    try { el.setPointerCapture(e.pointerId); } catch (err) {}
   });
+
   el.addEventListener("pointermove", e => {
-    if (x0 === null) return;
-    dx = e.clientX - x0;
-    if (Math.abs(dx) > 6) moved = true;
-    el.style.transform = "translateX(" + dx + "px) rotate(" + (dx / 26) + "deg)";
-    y.style.opacity = dx > 0 ? Math.min(1, dx / 90) : 0;
-    n.style.opacity = dx < 0 ? Math.min(1, -dx / 90) : 0;
+    if (id === null || e.pointerId !== id) return;
+    const mx = e.clientX - x0, my = e.clientY - yy0;
+    // Ось выбирается один раз, с перевесом в сторону горизонтали: палец при
+    // медленном движении всегда немного гуляет вверх-вниз, и строгое
+    // сравнение убивало половину честных свайпов.
+    if (!axis) {
+      if (Math.abs(mx) < 5 && Math.abs(my) < 5) return;
+      axis = Math.abs(mx) >= Math.abs(my) * 0.6 ? "x" : "y";
+    }
+    if (axis !== "x") return;
+    if (e.cancelable) e.preventDefault();
+    dx = mx;
+    const k = Math.min(1, Math.abs(dx) / THROW);
+    el.style.transform = "translateX(" + dx + "px) rotate(" + (dx / 22) + "deg)";
+    y.style.opacity = dx > 0 ? k : 0;
+    n.style.opacity = dx < 0 ? k : 0;
+    if (k >= 1 && !crossed) { crossed = true; haptic("selectionChanged"); }
+    if (k < 1) crossed = false;
   });
-  const up = () => {
-    if (x0 === null) return;
-    x0 = null;
-    el.style.transition = "transform .25s cubic-bezier(.2,.7,.3,1)";
-    if (moved && Math.abs(dx) > 88) return decide(dx > 0 ? "взял" : "нет");
-    el.style.transform = ""; y.style.opacity = 0; n.style.opacity = 0;
+
+  const release = e => {
+    if (id === null || (e && e.pointerId !== id)) return;
+    const dt = Math.max(1, (e ? e.timeStamp : t0 + 300) - t0);
+    const v = dx / dt;                       // пиксели в миллисекунду
+    id = null;
+    // Решение принимается либо по расстоянию, либо по скорости броска:
+    // короткий резкий флик ощущается как решение, хотя палец прошёл мало.
+    if (axis === "x" && (Math.abs(dx) > THROW || Math.abs(v) > FLICK)) {
+      return decide(dx > 0 ? "взял" : "нет", Math.sign(dx), Math.abs(v));
+    }
+    el.classList.add("settle");
+    el.style.transform = "";
+    y.style.opacity = n.style.opacity = 0;
   };
-  el.addEventListener("pointerup", up);
-  el.addEventListener("pointercancel", up);
+  el.addEventListener("pointerup", release);
+  // pointercancel обрабатываем ТАК ЖЕ, а не отдельной веткой «отменить всё»:
+  // если система забрала жест уже за порогом, решение всё равно принято,
+  // иначе доведённый до конца свайп молча откатывался бы.
+  el.addEventListener("pointercancel", release);
+  el.addEventListener("lostpointercapture", () => { if (id !== null) release(null); });
 }
 
-/* ── решение ─────────────────────────────────────────────── */
-function decide(state) {
+/* ── решение ──────────────────────────────────────────────── */
+function decide(state, dir, speed) {
   if (!queue.length) return;
   const v = queue.shift();
   done[v.id] = state;
   history.push(v);
   saveDone();
-  if (TG && TG.HapticFeedback) TG.HapticFeedback.impactOccurred("light");
-  const el = $("#deck").querySelector(".card.front");
+  haptic("impactOccurred", state === "взял" ? "medium" : "light");
+
+  const el = nodes.shift();
   if (el) {
-    const dir = state === "взял" ? 1 : state === "нет" ? -1 : 0;
-    el.classList.add("gone");
-    el.style.transform = dir
-      ? "translateX(" + dir * 460 + "px) rotate(" + dir * 18 + "deg)"
-      : "translateY(-340px) scale(.9)";
-    setTimeout(render, 190);
-  } else render();
+    const d = dir || (state === "отложен" ? 0 : 0);
+    el.classList.add("fly");
+    el.style.transform = d
+      ? "translateX(" + d * (innerWidth + 220) + "px) rotate(" + d * 22 + "deg)"
+      : "translateY(-" + (innerHeight * .8) + "px) scale(.85)";
+    setTimeout(() => el.remove(), 340);
+  }
+  // Следующая уже в DOM: повышаем её и дорисовываем новую в хвост стопки.
+  nodes.forEach((c, i) => { c.classList.add("settle"); c.dataset.depth = i; });
+  if (nodes[0]) attachFront(nodes[0]);
+  const tail = queue[2];
+  if (tail) {
+    const el2 = buildCard(tail);
+    el2.dataset.depth = 2;
+    $("#deck").insertBefore(el2, $("#deck").firstChild);
+    nodes.push(el2);
+  }
+  paintRail();
+  if (!queue.length) setTimeout(finish, 360);
 }
 
 function undo() {
@@ -334,39 +535,78 @@ function undo() {
   delete done[v.id];
   saveDone();
   queue.unshift(v);
-  render();
+  haptic("impactOccurred", "soft");
+  const sheet = $(".sheet");
+  if (sheet) { sheet.remove(); $("#acts").hidden = false; }
+  mount();
+}
+
+/* ── финал ────────────────────────────────────────────────── */
+function finish() {
+  const n = Object.keys(done).length;
+  const taken = items.filter(v => done[v.id] === "взял");
+  const counts = {};
+  Object.values(done).forEach(s => { counts[s] = (counts[s] || 0) + 1; });
+
+  const sheet = document.createElement("div");
+  sheet.className = "sheet";
+  sheet.innerHTML =
+      "<h2>" + (n ? "Волна разобрана" : "Пока нечего смотреть") + "</h2>"
+    + "<p>" + (n ? "Осталось отправить решения на разбор."
+                 : "Волна соберётся следующим прогоном отбора.") + "</p>"
+    + (n ? '<div class="tally">' + Object.entries(counts).map(([s, c]) =>
+        '<span class="t" style="background:var(--' + TONE[s] + '-soft);color:var(--'
+        + TONE[s] + ')">' + LABEL[s] + " " + c + "</span>").join("") + "</div>" : "")
+    + (taken.length ? '<div class="done">' + taken.map(v =>
+        '<div class="r"><i>беру</i><span>' + esc(v.role)
+        + (v.contact ? "<br><span style=\"color:var(--hint)\">" + esc(v.contact) + "</span>" : "")
+        + "</span></div>").join("") + "</div>" : "");
+  $("#deck").appendChild(sheet);
+  $("#acts").hidden = true;
+  $("#num").textContent = n ? "готово" : "";
+  $("#bar").style.width = "100%";
+  syncMainButton();
+  if (n) haptic("notificationOccurred", "success");
 }
 
 function send() {
-  const payload = { t: "svaip", built: (window.WAVE && WAVE.built) || "", v: done };
-  const raw = JSON.stringify(payload);
+  const raw = JSON.stringify({ t: "svaip", built: (window.WAVE && WAVE.built) || "", v: done });
   if (!TG || !TG.sendData) {
     alert("Отправка работает только внутри Telegram. Открой приложение кнопкой в боте.");
     return;
   }
   if (raw.length > 4000) {
-    alert("Решений слишком много для одной посылки. Отправь часть, потом остальное.");
+    if (TG.showAlert) TG.showAlert("Решений слишком много для одной посылки. Отправь часть, потом остальное.");
     return;
   }
-  sent = true;
-  TG.sendData(raw);          // телеграм сам закроет приложение и отдаст боту
+  haptic("notificationOccurred", "success");
+  TG.sendData(raw);          // Telegram сам закроет приложение и отдаст боту
 }
 
-/* ── старт ───────────────────────────────────────────────── */
-document.querySelectorAll("[data-v]").forEach(b => b.onclick = () => decide(b.dataset.v));
+/* ── старт ────────────────────────────────────────────────── */
+initTelegram();
+document.querySelectorAll("[data-v]").forEach(b =>
+  b.onclick = () => decide(b.dataset.v, b.dataset.v === "взял" ? 1 : b.dataset.v === "нет" ? -1 : 0, 0));
 $("#undo").onclick = undo;
+if (TG && TG.MainButton) TG.MainButton.onClick(send);
 
 (async function boot() {
   done = await loadDone();
+  queue = items.filter(v => !done[v.id]);
+
   if (window.WAVE && WAVE.built) {
     const age = Math.round((Date.now() - Date.parse(WAVE.built)) / 864e5);
-    if (age >= 3) $("#stale").innerHTML = '<div class="stale">Волна собрана '
-      + age + " дней назад. Часть вакансий могла закрыться.</div>";
+    if (age >= 3) {
+      const w = document.createElement("div");
+      w.className = "note";
+      w.textContent = "Волна собрана " + age + " дней назад, часть вакансий могла закрыться.";
+      $(".app").insertBefore(w, $("#deck"));
+    }
   }
-  queue = items.filter(v => !done[v.id]);
-  if (!items.length) return finish();
+  if (!queue.length) { $("#deck").innerHTML = ""; return finish(); }
   $("#acts").hidden = false;
-  render();
+  mount();
+  syncMainButton();
 })();
 </script>
 </body>
