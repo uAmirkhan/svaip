@@ -103,19 +103,22 @@ body{
 .card[data-depth="1"]{z-index:2; pointer-events:none; overflow:hidden;
   visibility:hidden}
 
-/* Два режима, и они не пересекаются.
-   Свайп: прокрутки нет, touch-action:none, жест целиком наш.
-   Чтение: прокрутка есть, свайп выключен.
+/* ВСЕ жесты обрабатываем сами: touch-action:none и в свайпе, и в чтении.
+   Прокрутку внутри карточки двигаем скриптом.
 
-   Так это устроено потому, что совмещать их нельзя. Пока карточка была и
-   прокручиваемой, и тянущейся, браузер на МЕДЛЕННОМ движении решал, что
-   началась прокрутка, отбирал жест и слал pointercancel — карточка
-   возвращалась на место. Быстрый флик успевал проскочить до этого решения,
-   поэтому работал только он. */
+   Почему так. Пока браузер отвечал за вертикаль, а мы за горизонталь, он на
+   МЕДЛЕННОМ движении решал, что началась прокрутка, отбирал жест и слал
+   pointercancel: карточка возвращалась на место, работал только быстрый флик.
+   Разделение по режимам это лечило, но ломало другое — выжимку нельзя было
+   дочитать, потому что в режиме свайпа прокрутки не было вовсе.
+
+   Теперь правило одно и без исключений: вбок — решение, вверх-вниз —
+   прокрутка. Отложить свайпом можно, когда прокручивать уже некуда.
+
+   Прокрутку двигаем через scrollTop при overflow:hidden — так содержимое
+   скроллится, но браузер за жест не борется. */
 .card[data-depth="0"]{z-index:3; overflow:hidden; touch-action:none;
   user-select:none; -webkit-user-select:none}
-.card[data-depth="0"].reading{overflow-y:auto; touch-action:pan-y; user-select:text;
-  -webkit-user-select:text}
 .card.settle{transition:transform .3s cubic-bezier(.22,.68,.28,1)}
 .card.fly{transition:transform .34s cubic-bezier(.3,.1,.3,1), opacity .34s ease-out; opacity:0}
 
@@ -149,7 +152,10 @@ body{
 /* Текст объявления размечается по его собственной структуре: заголовки
    разделов, пункты списка, абзацы. Плоская простыня из того же текста
    не читается с телефона. */
-.body{flex:1 1 auto; min-height:0; position:relative}
+/* Текст занимает свою высоту, а прокручивается карточка целиком. Раньше он
+   растягивался по остатку и обрезался, из-за чего выжимку нельзя было
+   дочитать: прокрутки не было, а «развернуть» подменяло её исходником. */
+.body{flex:0 0 auto; position:relative}
 .body h3{margin:14px 0 6px; font:700 11px/1 var(--font); color:var(--hint);
   text-transform:uppercase; letter-spacing:.08em}
 /* Заголовок не остаётся один внизу карточки: если под ним не поместилось
@@ -166,18 +172,11 @@ body{
    и не нужен отдельный признак «тут ещё есть». */
 .body .lead{font-size:15.5px; line-height:1.4; font-weight:600; margin:0 0 10px}
 .body .full{font-size:14.5px}
-/* Выжимка почти всегда влезает целиком. Растворение включаем ТОЛЬКО когда
-   текст реально не поместился: постоянная маска гасила бы последний пункт
-   даже на короткой карточке. Класс ставит скрипт после отрисовки. */
-.card:not(.reading) .body{overflow:hidden}
-.card:not(.reading) .body.clipped{
-  -webkit-mask-image:linear-gradient(#000 78%, transparent);
-  mask-image:linear-gradient(#000 78%, transparent)}
-/* В чтении текст занимает СВОЮ высоту, а прокручивается карточка целиком.
-   Пока текст оставался растянутым по flex, он вылезал за свою ячейку и
-   накрывал кнопку «свернуть»: нажать её было невозможно. */
-.card.reading .body{flex:0 0 auto; overflow:visible;
-  -webkit-mask-image:none; mask-image:none}
+/* Признак, что карточку можно листать: тонкая полоска у нижнего края.
+   Ставится скриптом, только если содержимое действительно длиннее экрана. */
+.card.more-below::after{content:""; position:sticky; bottom:-14px; display:block;
+  height:26px; margin:-26px -15px -14px; flex:none; pointer-events:none;
+  background:linear-gradient(transparent, var(--card))}
 .more{align-self:flex-start; background:none; border:0; padding:3px 0; cursor:pointer;
   font:600 13px/1 var(--font); color:var(--link)}
 .links{display:flex; gap:16px; flex-wrap:wrap; font:500 13.5px/1 var(--font);
@@ -247,6 +246,7 @@ body{
   <div class="rail">
     <span class="num" id="num"></span>
     <span class="track"><i id="bar"></i></span>
+    <button class="undo" id="reload" title="проверить, не собрана ли новая волна">обновить</button>
     <button class="undo" id="undo" disabled>вернуть</button>
   </div>
   <div class="deck" id="deck">
@@ -517,32 +517,24 @@ function attachFront(el) {
     // Раскрытие подменяет выжимку полным постом, а не просто снимает обрезку:
     // выжимка и объявление это разные тексты, показывать оба подряд незачем.
     body.innerHTML = opening ? renderBody(v.text) : renderBrief(v);
-    body.classList.remove("clipped");
     el.classList.toggle("reading", opening);
-    ev.target.textContent = opening ? "свернуть" : "читать целиком";
+    ev.target.textContent = opening ? "показать выжимку" : "читать целиком";
     el.scrollTop = 0;
     haptic("selectionChanged");
-    if (!opening) markClipped(el);
+    markClipped(el);
     backButton(opening, () => el.querySelector(".more").click());
   };
   drag(el);
 }
 
-/* Растворение снизу и кнопка «читать целиком» нужны, только если текст не
-   поместился. Проверяем по факту, а не на глаз: у коротких выжимок ни того,
-   ни другого быть не должно. */
+/* Подсказка, что карточку можно листать. Кнопку «читать целиком» не прячем
+   никогда, если у вакансии есть исходный пост: она переключает выжимку и
+   объявление, а не раскрывает обрезанное. */
 function markClipped(el) {
-  const body = el.querySelector(".body");
   const more = el.querySelector(".more");
-  if (!body || !more) return;
-  requestAnimationFrame(() => {
-    const cut = body.scrollHeight - body.clientHeight > 6;
-    body.classList.toggle("clipped", cut);
-    // Кнопку прячем, только когда выжимка целиком видна И полный пост не
-    // длиннее её: иначе Khan теряет доступ к оригиналу объявления.
-    const hasMore = cut || (el.__full || "").length > body.textContent.length + 120;
-    more.hidden = !hasMore;
-  });
+  if (more) more.hidden = !(el.__full || "").trim();
+  requestAnimationFrame(() =>
+    el.classList.toggle("more-below", el.scrollHeight - el.clientHeight > 8));
 }
 
 /* Родная кнопка «назад» вместо своей: в режиме чтения ею сворачиваем текст,
@@ -570,6 +562,7 @@ function drag(el) {
   const y = el.querySelector(".stamp.y"), n = el.querySelector(".stamp.n"),
         l = el.querySelector(".stamp.l");
   let id = null, x0 = 0, yy0 = 0, t0 = 0, dx = 0, dy = 0, axis = null, crossed = false;
+  let sy0 = 0, room = 0, over = 0;   // прокрутка: старт, запас хода, перетяг
 
   el.addEventListener("pointerdown", e => {
     if (e.target.closest("a, button")) return;
@@ -580,9 +573,7 @@ function drag(el) {
     // успевает забрать жест себе, и на этом ломался медленный свайп.
     // В режиме чтения захватывать нельзя: это убьёт прокрутку, поэтому там
     // захват откладывается до момента, когда ось окажется горизонтальной.
-    if (!el.classList.contains("reading")) {
-      try { el.setPointerCapture(e.pointerId); } catch (err) {}
-    }
+    try { el.setPointerCapture(e.pointerId); } catch (err) {}
   });
 
   el.addEventListener("pointermove", e => {
@@ -591,20 +582,11 @@ function drag(el) {
     // Ось выбирается один раз, с перевесом в сторону горизонтали: палец при
     // медленном движении всегда немного гуляет вверх-вниз, и строгое
     // сравнение убивало половину честных свайпов.
-    const reading = el.classList.contains("reading");
     if (!axis) {
       if (Math.abs(mx) < 5 && Math.abs(my) < 5) return;
       axis = Math.abs(mx) >= Math.abs(my) * 0.6 ? "x" : "y";
-      // В чтении вертикаль отдана прокрутке, а горизонталь наша: захват
-      // берём только сейчас, когда стало ясно, что жест точно вбок.
-      if (reading) {
-        if (axis !== "x") { id = null; return; }
-        try { el.setPointerCapture(e.pointerId); } catch (err) {}
-      }
+      if (axis === "y") { sy0 = el.scrollTop; room = el.scrollHeight - el.clientHeight; }
     }
-    // Вертикальное «отложить» только в режиме свайпа: в чтении тем же
-    // движением человек листает текст.
-    if (reading && axis !== "x") return;
     if (e.cancelable) e.preventDefault();
     if (axis === "x") {
       dx = mx; dy = 0;
@@ -616,12 +598,18 @@ function drag(el) {
       if (k >= 1 && !crossed) { crossed = true; haptic("selectionChanged"); }
       if (k < 1) crossed = false;
     } else {
-      // Вертикаль это «отложить». Направление не важно: вверх и вниз делают
-      // одно и то же, потому что палец сам выбирает, куда удобнее, а два
-      // разных решения на одной оси легко перепутать.
-      dy = my; dx = 0;
-      const k = Math.min(1, Math.abs(dy) / THROW_Y);
-      el.style.transform = "translateY(" + dy + "px) scale(" + (1 - k * .04) + ")";
+      // Вертикаль сначала листает текст. «Отложить» начинается там, где
+      // листать уже некуда: перетянул сверху вниз или снизу вверх.
+      dx = 0;
+      const want = sy0 - my;
+      const clamped = Math.max(0, Math.min(room, want));
+      el.scrollTop = clamped;
+      over = want < 0 ? -want : (want > room ? room - want : 0);
+      dy = over;
+      const k = Math.min(1, Math.abs(over) / THROW_Y);
+      el.style.transform = over
+        ? "translateY(" + over * .55 + "px) scale(" + (1 - k * .04) + ")"
+        : "";
       y.style.opacity = n.style.opacity = 0;
       l.style.opacity = k;
       if (k >= 1 && !crossed) { crossed = true; haptic("selectionChanged"); }
@@ -638,9 +626,9 @@ function drag(el) {
     if (axis === "x" && (Math.abs(dx) > THROW || Math.abs(dx / dt) > FLICK)) {
       return decide(dx > 0 ? "взял" : "нет", Math.sign(dx), 0);
     }
-    if (axis === "y" && !el.classList.contains("reading")
-        && (Math.abs(dy) > THROW_Y || Math.abs(dy / dt) > FLICK)) {
-      return decide("отложен", 0, Math.sign(dy));
+    // Отложить — только по перетягу за край прокрутки, не по обычному листанию.
+    if (axis === "y" && Math.abs(dy) > THROW_Y) {
+      return decide("отложен", 0, dy < 0 ? 1 : -1);
     }
     el.classList.add("settle");
     el.style.transform = "";
@@ -748,6 +736,37 @@ initTelegram();
 document.querySelectorAll("[data-v]").forEach(b => b.onclick = () => decide(b.dataset.v, 0, 0));
 $("#undo").onclick = undo;
 if (TG && TG.MainButton) TG.MainButton.onClick(send);
+
+/* Обновление волны. Страница статическая, волна лежит рядом в wave.js, и
+   браузер её кеширует надолго. Поэтому дёргаем файл с меткой времени и
+   перерисовываем, не перезагружая приложение: перезагрузка в Telegram
+   выглядит как моргание и теряет состояние. */
+$("#reload").onclick = async () => {
+  const b = $("#reload");
+  b.disabled = true; b.textContent = "читаю…";
+  try {
+    const r = await fetch("wave.js?t=" + Date.now(), { cache: "no-store" });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const src = await r.text();
+    const doc = JSON.parse(src.slice(src.indexOf("=") + 1).trim().replace(/;\s*$/, ""));
+    if (!doc.items || !doc.items.length) throw new Error("волна пуста");
+    const wasBuilt = (window.WAVE || {}).built;
+    window.WAVE = doc;
+    items.length = 0;
+    doc.items.forEach(x => items.push(x));
+    queue = items.filter(x => !done[x.id]);
+    history.length = 0;
+    b.textContent = doc.built === wasBuilt ? "без изменений" : "обновлено";
+    haptic("notificationOccurred", doc.built === wasBuilt ? "warning" : "success");
+    $("#acts").hidden = !queue.length;
+    if (queue.length) mount(); else finish();
+    syncMainButton();
+  } catch (e) {
+    b.textContent = "не вышло";
+    if (TG && TG.showAlert) TG.showAlert("Не смог обновить: " + (e.message || e));
+  }
+  setTimeout(() => { b.textContent = "обновить"; b.disabled = false; }, 2200);
+};
 
 (async function boot() {
   done = await loadDone();
