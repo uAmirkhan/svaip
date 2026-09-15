@@ -712,6 +712,10 @@ function decide(state, dirX, dirY) {
   }
   paintRail();
   if (!queue.length) setTimeout(finish, 360);
+  // Порог автоотправки. После перерисовки, чтобы карточка успела улететь:
+  // sendData закрывает приложение, и без задержки последний свайп выглядел
+  // бы как провал в пустоту.
+  setTimeout(maybeAutoSend, 420);
 }
 
 function undo() {
@@ -784,53 +788,100 @@ function packs(map) {
   return out;
 }
 
-function send() {
-  // Любой выход из этой функции должен быть ВИДИМЫМ. Молчаливый return здесь
-  // и читается как «кнопка не работает».
+/* Автоотправка. Жать кнопку не нужно.
+
+   Ограничение, вокруг которого всё построено: TG.sendData ЗАКРЫВАЕТ
+   приложение и срабатывает один раз за сессию. Поэтому «копить всё и
+   отправить в конце» нерабочая схема: накопив сотню решений, человек
+   упирается в лимит посылки и досылает остаток вручную заходами, а если
+   закроет приложение сам — не уйдёт вообще ничего.
+
+   Значит отправляем ЧАСТО и небольшими порциями, каждая гарантированно
+   влезает в одну посылку:
+
+   1. Порог. Набралось AUTO_AT решений — уходят сами.
+   2. Конец волны. Карточки кончились — уходит остаток.
+   3. Уход из приложения. Свернули или закрыли — пробуем успеть отправить.
+   4. Кнопка. Остаётся как ручной путь, но нажимать её не обязательно.
+
+   Порог 8, а не 30: посылка в 8 решений весит около 500 байт при потолке
+   4096, то есть влезает с десятикратным запасом даже на длинных url. */
+const AUTO_AT = 8;
+let sending = false;
+
+function pendingMap() {
+  const p = {};
+  Object.keys(done).forEach(k => { if (!sent[k]) p[k] = done[k]; });
+  return p;
+}
+
+function send(opts) {
+  const auto = !!(opts && opts.auto);
+  // Любой выход из этой функции должен быть ВИДИМЫМ, если её позвал человек.
+  // Молчаливый return читается как «кнопка не работает». В автоматическом
+  // режиме наоборот: молчим, чтобы не мешать разбору.
   const own = document.getElementById("send");
   const say = msg => {
+    if (auto) return;
     if (own) { own.textContent = msg; own.disabled = true;
                setTimeout(syncMainButton, 2500); }
     else if (TG && TG.showAlert) TG.showAlert(msg);
     else alert(msg);
   };
+  if (sending) return;
   if (!TG || !TG.sendData) {
     say("Отправка работает только внутри Telegram");
     return;
   }
-  const pending = {};
-  Object.keys(done).forEach(k => { if (!sent[k]) pending[k] = done[k]; });
+  const pending = pendingMap();
   const n = Object.keys(pending).length;
   if (!n) {
     say("Новых решений нет");
     return;
   }
-  const parts = packs(pending);
-  const first = parts[0];
+  // Отправляем ровно одну порцию: приложение закроется, вторая всё равно
+  // не уйдёт. Остаток помечен неотправленным и уедет при следующем заходе.
+  const first = packs(pending)[0];
   Object.keys(first).forEach(k => { sent[k] = true; });
   saveSent();
-  const left = n - Object.keys(first).length;
+  sending = true;
   haptic("notificationOccurred", "success");
-  // Телеграм закрывает приложение сразу после sendData, поэтому за один раз
-  // уходит ровно одна часть. Об остатке человек должен узнать ДО закрытия.
-  if (left && TG.showAlert) {
-    TG.showAlert("Отправляю " + Object.keys(first).length + " решений. Осталось "
-      + left + ": открой приложение ещё раз и нажми отправку.",
-      () => TG.sendData(JSON.stringify(
-        { t: "svaip", built: (window.WAVE && WAVE.built) || "", v: first })));
-    return;
-  }
   TG.sendData(JSON.stringify(
     { t: "svaip", built: (window.WAVE && WAVE.built) || "", v: first }));
+}
+
+/* Порог: зовётся после каждого решения. */
+function maybeAutoSend() {
+  if (sending || !TG || !TG.sendData) return;
+  const n = Object.keys(pendingMap()).length;
+  // Конец волны отправляет любой остаток, не дожидаясь порога: иначе
+  // последние 2-3 решения зависли бы до следующего захода.
+  if (n >= AUTO_AT || (n > 0 && !queue.length)) send({ auto: true });
+}
+
+/* Уход из приложения. Телеграм не даёт события «закрываюсь», поэтому ловим
+   то, что есть: сворачивание вкладки и выгрузку страницы. Успеет не всегда,
+   и это нормально: несохранённое остаётся помеченным как неотправленное и
+   уедет при следующем открытии, а порог делает такие остатки маленькими. */
+function bindLeave() {
+  const tryLeave = () => {
+    if (document.visibilityState === "hidden" && Object.keys(pendingMap()).length)
+      send({ auto: true });
+  };
+  document.addEventListener("visibilitychange", tryLeave);
+  window.addEventListener("pagehide", tryLeave);
 }
 
 /* ── старт ────────────────────────────────────────────────── */
 initTelegram();
 document.querySelectorAll("[data-v]").forEach(b => b.onclick = () => decide(b.dataset.v, 0, 0));
 $("#undo").onclick = undo;
-if (TG && TG.MainButton) TG.MainButton.onClick(send);
+// Оборачиваем, а не передаём send напрямую: иначе в opts уедет объект
+// события телеграма и ручное нажатие станет неотличимо от автоматического.
+if (TG && TG.MainButton) TG.MainButton.onClick(() => send());
 const ownSend = document.getElementById("send");
-if (ownSend) ownSend.onclick = send;
+if (ownSend) ownSend.onclick = () => send();
+bindLeave();
 
 /* Обновление волны. Страница статическая, волна лежит рядом в wave.js, и
    браузер её кеширует надолго. Поэтому дёргаем файл с меткой времени и
