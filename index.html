@@ -208,6 +208,11 @@ body{
 .act .t{font:500 10.5px/1.15 var(--font); color:var(--hint); text-align:center}
 .act.nope .o{color:var(--nope)}  .act.take .o{color:var(--take)}
 .act.later .o{color:var(--later)} .act.wrong .o{color:var(--wrong)}
+.sendbtn{display:block; width:100%; margin-top:10px; padding:15px 12px;
+  border:0; border-radius:12px; background:var(--take); color:#fff;
+  font:700 15px/1.2 var(--font); cursor:pointer; box-shadow:var(--shadow)}
+.sendbtn:active{transform:scale(.98)}
+.sendbtn[disabled]{opacity:.5; cursor:default}
 .act.take .o{width:58px; height:58px; font-size:25px}
 .act.nope .o{width:58px; height:58px; font-size:25px}
 .act:disabled{opacity:.35; cursor:default}
@@ -266,6 +271,12 @@ body{
     <button class="act later" data-v="отложен"><span class="o">↻</span><span class="t">отложить</span></button>
     <button class="act take"  data-v="взял"><span class="o">✓</span><span class="t">беру</span></button>
   </div>
+  <!-- Своя кнопка отправки, а не только родная MainButton телеграма.
+       MainButton живёт вне страницы: на части клиентов она не появляется,
+       прячется своим же hide() и не показывает, что нажатие вообще дошло.
+       Тогда «нажимаю отправить, ничего не происходит» неотличимо от поломки
+       (поймано 2026-09-15). Эта кнопка всегда в разметке и всегда отвечает. -->
+  <button id="send" class="sendbtn" hidden></button>
 </div>
 
 <script src="wave.js"></script>
@@ -307,6 +318,17 @@ const FLICK = 0.65;   // порог броска в пикселях за мил
 const items = (window.WAVE && WAVE.items) || [];
 let done = {}, queue = [], history = [], nodes = [];
 
+/* Какие решения уже ушли боту. Нужно, потому что посылка режется на части, а
+   телеграм закрывает приложение сразу после отправки: без этой отметки второй
+   заход слал бы всё заново с первой части и остаток не уходил бы никогда.
+   Живёт только в localStorage: список временный, к следующей волне не нужен.
+   Объявлено здесь, а не рядом с saveSent, потому что syncMainButton читает
+   его при первой же отрисовке и на `let` ниже по файлу падал бы в ReferenceError. */
+const SENT_KEY = KEY + ":sent";
+let sent = (() => {
+  try { return JSON.parse(localStorage.getItem(SENT_KEY) || "{}"); } catch (e) { return {}; }
+})();
+
 /* ── платформа ────────────────────────────────────────────── */
 function haptic(kind, arg) {
   if (!TG || !TG.HapticFeedback) return;
@@ -341,13 +363,23 @@ function initTelegram() {
 /* Главная кнопка Telegram. Показываем её только когда есть что отправлять:
    пустая кнопка внизу экрана занимает место и сбивает с толку. */
 function syncMainButton() {
+  // Считаем НЕотправленные: после частичной отправки кнопка должна звать
+  // дослать остаток, а не предлагать заново то, что уже ушло.
+  const n = Object.keys(done).filter(k => !(typeof sent === "object" && sent[k])).length;
+  const label = queue.length ? `Отправить ${n}` : `Отправить решения (${n})`;
+
+  // Своя кнопка в разметке. Она главная: видна и работает независимо от того,
+  // отрисовал ли клиент родную MainButton.
+  const own = document.getElementById("send");
+  if (own) {
+    own.hidden = !n;
+    own.textContent = label;
+    own.disabled = false;
+  }
+
   if (!TG || !TG.MainButton) return;
-  const n = Object.keys(done).length;
   if (!n) return TG.MainButton.hide();
-  TG.MainButton.setParams({
-    text: queue.length ? `Отправить ${n}` : `Отправить решения (${n})`,
-    is_active: true, is_visible: true
-  });
+  TG.MainButton.setParams({ text: label, is_active: true, is_visible: true });
 }
 
 /* ── хранилище ────────────────────────────────────────────── */
@@ -381,6 +413,11 @@ function saveDone() {
   if (TG && TG.CloudStorage && TG.isVersionAtLeast && TG.isVersionAtLeast("6.9")) {
     try { TG.CloudStorage.setItem(KEY, raw, () => {}); } catch (e) {}
   }
+  syncMainButton();
+}
+
+function saveSent() {
+  try { localStorage.setItem(SENT_KEY, JSON.stringify(sent)); } catch (e) {}
   syncMainButton();
 }
 
@@ -717,18 +754,74 @@ function finish() {
   if (n) haptic("notificationOccurred", "success");
 }
 
+/* Телеграм режет sendData на 4096 БАЙТАХ, а не символах. Ключи это длинные
+   url, значения кириллица по два байта, поэтому счёт по .length врал почти
+   вдвое и посылка упиралась в потолок примерно на 30 решениях.
+   Раньше здесь стоял отказ с советом «отправь часть, потом остальное», но
+   разбить посылку было нечем: кнопка одна и она же упиралась в тот же лимит,
+   то есть приложение советовало действие, которого в интерфейсе нет
+   (поймано 2026-09-15, свайп встал колом на полной волне).
+   Теперь режем сами. Отправленное помечаем как ушедшее и запоминаем, чтобы
+   после возврата в приложение продолжить с остатка, а не слать всё заново. */
+const SEND_LIMIT = 3800;     // запас под служебные поля и разметку телеграма
+
+function packs(map) {
+  const keys = Object.keys(map);
+  const out = [];
+  let cur = {};
+  const size = o => new Blob([JSON.stringify(
+      { t: "svaip", built: (window.WAVE && WAVE.built) || "", v: o })]).size;
+  for (const k of keys) {
+    const next = { ...cur, [k]: map[k] };
+    if (Object.keys(cur).length && size(next) > SEND_LIMIT) {
+      out.push(cur);
+      cur = { [k]: map[k] };
+    } else {
+      cur = next;
+    }
+  }
+  if (Object.keys(cur).length) out.push(cur);
+  return out;
+}
+
 function send() {
-  const raw = JSON.stringify({ t: "svaip", built: (window.WAVE && WAVE.built) || "", v: done });
+  // Любой выход из этой функции должен быть ВИДИМЫМ. Молчаливый return здесь
+  // и читается как «кнопка не работает».
+  const own = document.getElementById("send");
+  const say = msg => {
+    if (own) { own.textContent = msg; own.disabled = true;
+               setTimeout(syncMainButton, 2500); }
+    else if (TG && TG.showAlert) TG.showAlert(msg);
+    else alert(msg);
+  };
   if (!TG || !TG.sendData) {
-    alert("Отправка работает только внутри Telegram. Открой приложение кнопкой в боте.");
+    say("Отправка работает только внутри Telegram");
     return;
   }
-  if (raw.length > 4000) {
-    if (TG.showAlert) TG.showAlert("Решений слишком много для одной посылки. Отправь часть, потом остальное.");
+  const pending = {};
+  Object.keys(done).forEach(k => { if (!sent[k]) pending[k] = done[k]; });
+  const n = Object.keys(pending).length;
+  if (!n) {
+    say("Новых решений нет");
     return;
   }
+  const parts = packs(pending);
+  const first = parts[0];
+  Object.keys(first).forEach(k => { sent[k] = true; });
+  saveSent();
+  const left = n - Object.keys(first).length;
   haptic("notificationOccurred", "success");
-  TG.sendData(raw);          // Telegram сам закроет приложение и отдаст боту
+  // Телеграм закрывает приложение сразу после sendData, поэтому за один раз
+  // уходит ровно одна часть. Об остатке человек должен узнать ДО закрытия.
+  if (left && TG.showAlert) {
+    TG.showAlert("Отправляю " + Object.keys(first).length + " решений. Осталось "
+      + left + ": открой приложение ещё раз и нажми отправку.",
+      () => TG.sendData(JSON.stringify(
+        { t: "svaip", built: (window.WAVE && WAVE.built) || "", v: first })));
+    return;
+  }
+  TG.sendData(JSON.stringify(
+    { t: "svaip", built: (window.WAVE && WAVE.built) || "", v: first }));
 }
 
 /* ── старт ────────────────────────────────────────────────── */
@@ -736,6 +829,8 @@ initTelegram();
 document.querySelectorAll("[data-v]").forEach(b => b.onclick = () => decide(b.dataset.v, 0, 0));
 $("#undo").onclick = undo;
 if (TG && TG.MainButton) TG.MainButton.onClick(send);
+const ownSend = document.getElementById("send");
+if (ownSend) ownSend.onclick = send;
 
 /* Обновление волны. Страница статическая, волна лежит рядом в wave.js, и
    браузер её кеширует надолго. Поэтому дёргаем файл с меткой времени и
