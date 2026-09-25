@@ -507,7 +507,8 @@ function buildCard(v) {
     + "<b>" + esc(Math.round(v.priority)) + "</b></div><div>"
     + '<h2 class="ttl">' + esc(v.role) + "</h2>"
     + '<div class="sub">' + (v.company ? "<b>" + esc(v.company) + "</b> · " : "")
-    + esc(v.channel) + " · " + esc(v.posted) + "</div></div></div>"
+    + (v.channel_url ? '<a href="' + esc(v.channel_url) + '" target="_blank" rel="noopener">@' + esc(v.channel) + "</a>" : esc(v.channel))
+    + " · " + esc(v.posted) + "</div></div></div>"
     + '<div class="facts">' + chips.map(([t, c]) =>
         '<span class="chip ' + c + '">' + esc(t) + "</span>").join("") + "</div>"
     + ((v.missing || []).length
