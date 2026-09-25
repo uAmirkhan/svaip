@@ -235,6 +235,13 @@ body{
   border-top:1px solid var(--sep); padding:9px 0}
 .done .r i{font-style:normal; font:600 10px/1.5 var(--font); color:var(--take);
   text-transform:uppercase; letter-spacing:.06em; flex:none; width:34px}
+.done .r{flex-wrap:wrap}
+.done .r .go{flex-basis:100%; display:flex; gap:8px; margin-top:4px}
+.done .r .go a,.done .r .go button{font:600 12px/1 var(--font); padding:7px 10px; border-radius:9px;
+  background:var(--take-soft); color:var(--take); text-decoration:none; border:0}
+.done .r .go button{background:var(--sep); color:var(--sub)}
+.copyall{display:block; width:100%; margin:12px 0 0; padding:11px; border:0; border-radius:11px;
+  background:var(--take); color:#fff; font:600 14px/1 var(--font)}
 .note{background:var(--later-soft); color:var(--later); border-radius:11px;
   padding:10px 12px; font-size:12.5px; margin-bottom:10px; flex:none}
 
@@ -732,6 +739,39 @@ function undo() {
 }
 
 /* ── финал ────────────────────────────────────────────────── */
+/* «Беру» должно вести к действию, а не к списку названий. Раньше после свайпа
+   человек шел искать пост заново; теперь с итогового экрана можно откликнуться,
+   написать в личку или забрать весь список в буфер и разобрать на компьютере. */
+function tgLink(contact) {
+  const m = /^@?([A-Za-z0-9_]{5,32})$/.exec(String(contact || "").trim());
+  return m ? "https://t.me/" + m[1] : "";
+}
+function takeActions(v) {
+  const a = [];
+  if (v.apply) a.push('<a href="' + esc(v.apply) + '" target="_blank" rel="noopener">откликнуться</a>');
+  const tl = tgLink(v.contact);
+  if (tl) a.push('<a href="' + esc(tl) + '" target="_blank" rel="noopener">написать</a>');
+  if (v.url) a.push('<a href="' + esc(v.url) + '" target="_blank" rel="noopener">пост</a>');
+  return a.length ? '<span class="go">' + a.join("") + "</span>" : "";
+}
+function takenText(list) {
+  return list.map(v => [v.role + (v.company ? " (" + v.company + ")" : ""),
+    v.apply || "", v.contact || "", v.url || ""].filter(Boolean).join("\n")).join("\n\n");
+}
+function copyText(text, btn) {
+  const ok = () => { if (btn) { btn.textContent = "скопировано"; } haptic("notificationOccurred", "success"); };
+  const fallback = () => {
+    const ta = document.createElement("textarea");
+    ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand("copy"); ok(); } catch (e) {}
+    ta.remove();
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText)
+    navigator.clipboard.writeText(text).then(ok, fallback);
+  else fallback();
+}
+
 function finish() {
   const n = Object.keys(done).length;
   const taken = items.filter(v => done[v.id] === "взял");
@@ -749,9 +789,13 @@ function finish() {
         + TONE[s] + ')">' + LABEL[s] + " " + c + "</span>").join("") + "</div>" : "")
     + (taken.length ? '<div class="done">' + taken.map(v =>
         '<div class="r"><i>беру</i><span>' + esc(v.role)
+        + (v.company ? " · " + esc(v.company) : "")
         + (v.contact ? "<br><span style=\"color:var(--hint)\">" + esc(v.contact) + "</span>" : "")
-        + "</span></div>").join("") + "</div>" : "");
+        + "</span>" + takeActions(v) + "</div>").join("") + "</div>"
+        + '<button class="copyall" id="copyall">скопировать список (' + taken.length + ")</button>" : "");
   $("#deck").appendChild(sheet);
+  const ca = sheet.querySelector("#copyall");
+  if (ca) ca.addEventListener("click", () => copyText(takenText(taken), ca));
   $("#acts").hidden = true;
   $("#num").textContent = n ? "готово" : "";
   $("#bar").style.width = "100%";
